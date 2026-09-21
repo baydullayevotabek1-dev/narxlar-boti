@@ -29,7 +29,7 @@ def search_models(queries: list[str]) -> tuple[dict, list[str]]:
         matches: list[dict] = []
         seen_stores = set()
 
-        # exact norm match
+        # exact norm match — ALL stores that have the model exactly
         if qn in norm_map:
             for p in norm_map[qn]:
                 if p["store"] in seen_stores:
@@ -37,17 +37,16 @@ def search_models(queries: list[str]) -> tuple[dict, list[str]]:
                 matches.append(p)
                 seen_stores.add(p["store"])
 
-        # fuzzy match if not enough
-        if not matches:
-            fuzz_results = process.extract(
-                qn, norm_keys, scorer=fuzz.WRatio, limit=10, score_cutoff=FUZZY_THRESHOLD
-            )
-            for norm_key, score, _ in fuzz_results:
-                for p in norm_map[norm_key]:
-                    if p["store"] in seen_stores:
-                        continue
-                    matches.append(p)
-                    seen_stores.add(p["store"])
+        # fuzzy match — find variants in stores that don't have exact match
+        fuzz_results = process.extract(
+            qn, norm_keys, scorer=fuzz.WRatio, limit=30, score_cutoff=FUZZY_THRESHOLD
+        )
+        for norm_key, score, _ in fuzz_results:
+            for p in norm_map[norm_key]:
+                if p["store"] in seen_stores:
+                    continue
+                matches.append(p)
+                seen_stores.add(p["store"])
 
         if matches:
             result_list = []

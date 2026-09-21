@@ -1,5 +1,6 @@
 """Download Excel from URL (supports Google Drive share links, direct URLs)."""
 import re
+import urllib.parse
 import aiohttp
 
 MAX_URL_SIZE = 300 * 1024 * 1024  # 300 MB
@@ -48,12 +49,20 @@ async def download_url(url: str) -> tuple[bytes, str]:
             if content_length and content_length > MAX_URL_SIZE:
                 raise ValueError(f"Fayl juda katta: {content_length/1024/1024:.1f} MB (max 300 MB)")
 
-            # filename from headers
+            # filename from headers — try filename*=UTF-8''... first, then filename="..."
             filename = "download.xlsx"
             cd = resp.headers.get("Content-Disposition", "")
-            m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', cd)
+            m = re.search(r"filename\*=UTF-8''([^;]+)", cd, re.IGNORECASE)
             if m:
-                filename = m.group(1)
+                filename = urllib.parse.unquote(m.group(1).strip().strip('"'))
+            else:
+                m = re.search(r'filename="([^"]+)"', cd)
+                if m:
+                    filename = m.group(1)
+                else:
+                    m = re.search(r"filename=([^;]+)", cd)
+                    if m:
+                        filename = m.group(1).strip().strip('"')
 
             data = bytearray()
             async for chunk in resp.content.iter_chunked(64 * 1024):
