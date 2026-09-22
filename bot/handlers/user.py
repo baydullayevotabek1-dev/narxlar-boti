@@ -159,11 +159,12 @@ async def handle_search(m: Message):
         await m.answer(text)
 
     for query, names in suggestions.items():
-        await m.answer(
-            f"🤔 <b>{query}</b> — aniq topilmadi.\n"
-            "Shulardan birini nazarda tutdingizmi?\n\n"
-            + "\n".join(f"• <code>{n}</code>" for n in names)
+        header = (
+            f"🔗 <b>{query}</b> — o'xshash boshqa modellar (narxi boshqacha):"
+            if query in found
+            else f"🤔 <b>{query}</b> — aniq topilmadi.\nShulardan birini nazarda tutdingizmi?"
         )
+        await m.answer(header + "\n\n" + "\n".join(f"• <code>{n}</code>" for n in names))
 
     if not_found:
         await m.answer(

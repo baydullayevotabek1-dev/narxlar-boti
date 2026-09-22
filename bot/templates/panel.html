@@ -54,6 +54,8 @@
   .not-found { background: #fff3cd; border: 1px solid #ffe08a; padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 14px; color: #856404; }
   .best-badge { display: inline-block; background: #27ae60; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; margin-left: 6px; }
   .matched-model { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #444; }
+  .related { margin-top: 12px; padding: 10px 12px; background: #f7f8fa; border-radius: 8px; font-size: 12px; color: #666; }
+  .related .suggest-options { margin-top: 8px; }
   .suggest-block { background: #fff8e6; border: 1px solid #ffe08a; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
   .suggest-head { font-size: 15px; color: #7a5b00; }
   .suggest-sub { font-size: 13px; color: #9a7b20; margin: 6px 0 12px; }
@@ -391,10 +393,17 @@ function renderResults(j) {
     if (aiDesc) {
       html += `<div style="margin-top:10px; padding:10px; background:#e8f4fd; border-left:3px solid #667eea; border-radius:6px; font-size:13px; color:#444;">🤖 <b>AI:</b> ${escapeHtml(aiDesc)}</div>`;
     }
+    const related = (j.suggestions || {})[model] || [];
+    if (related.length) {
+      html += `<div class="related">🔗 <b>O'xshash boshqa modellar</b> (narxi boshqacha — bosing):<div class="suggest-options">` +
+        related.map(n => `<span class="chip chip-suggest" onclick="reuseHistory('${encodeURIComponent(n)}')">${escapeHtml(n)}</span>`).join('') +
+        `</div></div>`;
+    }
     html += `<button class="copy-btn" onclick="copyBlock('${bid}', ${JSON.stringify(model).replace(/"/g,'&quot;')})">📋 Mijozga yuborish</button>`;
     html += '</div>';
   }
   for (const [model, names] of Object.entries(j.suggestions || {})) {
+    if ((j.found || {})[model]) continue;  // already shown inline as "related"
     html += `<div class="suggest-block">
       <div class="suggest-head">🤔 <b>${escapeHtml(model)}</b> — aniq topilmadi</div>
       <div class="suggest-sub">Shulardan birini nazarda tutdingizmi? Bosing — narxini ko'rasiz.</div>
