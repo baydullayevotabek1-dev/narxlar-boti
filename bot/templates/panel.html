@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Narxlar Paneli</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f6fa; color: #333; }
+  header { background: #fff; padding: 16px 24px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 18px; color: #667eea; }
+  header a { color: #888; text-decoration: none; font-size: 14px; }
+  header a:hover { color: #333; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; display: grid; grid-template-columns: 1fr 320px; gap: 24px; }
+  @media (max-width: 900px) { .container { grid-template-columns: 1fr; } }
+  .main { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+  .sidebar { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); height: fit-content; }
+  h2 { font-size: 16px; margin-bottom: 14px; color: #444; }
+  textarea { width: 100%; padding: 14px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 15px; font-family: inherit; resize: vertical; min-height: 90px; }
+  textarea:focus { outline: none; border-color: #667eea; }
+  .btn { padding: 12px 24px; background: #667eea; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .btn:hover { background: #5568d3; }
+  .btn:disabled { background: #ccc; cursor: not-allowed; }
+  .btn-sm { padding: 6px 12px; font-size: 13px; }
+  .btn-ghost { background: #f0f0f0; color: #555; }
+  .btn-ghost:hover { background: #e0e0e0; }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+  .store-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #eee; }
+  .store-item:last-child { border-bottom: none; }
+  .store-name { font-weight: 600; }
+  .store-info { font-size: 12px; color: #888; }
+  .results { margin-top: 24px; }
+  .model-block { background: #fafbfc; border-radius: 10px; padding: 16px; margin-bottom: 14px; border: 1px solid #ecedf1; }
+  .model-title { font-size: 16px; font-weight: 700; color: #333; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; font-size: 14px; }
+  th { background: #f7f8fa; font-weight: 600; color: #666; font-size: 12px; text-transform: uppercase; }
+  .price { font-weight: 700; color: #2ecc71; }
+  .discount { color: #e74c3c; font-weight: 600; }
+  .old-price { color: #999; text-decoration: line-through; font-size: 13px; }
+  .desc { font-size: 12px; color: #666; margin-top: 4px; }
+  .not-found { background: #fff3cd; border: 1px solid #ffe08a; padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 14px; color: #856404; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+  .modal.open { display: flex; }
+  .modal-content { background: #fff; padding: 28px; border-radius: 12px; max-width: 500px; width: 100%; }
+  .modal-content h3 { margin-bottom: 16px; }
+  .modal-close { float: right; cursor: pointer; color: #888; font-size: 20px; }
+  .tab-btns { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 2px solid #eee; }
+  .tab-btn { padding: 8px 14px; background: none; border: none; cursor: pointer; font-size: 14px; color: #888; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .tab-btn.active { color: #667eea; border-bottom-color: #667eea; font-weight: 600; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  input[type=text], input[type=number] { width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; }
+  input[type=file] { padding: 8px; }
+  .status { margin-top: 12px; font-size: 14px; }
+  .status.ok { color: #27ae60; }
+  .status.err { color: #e74c3c; }
+  .loader { display: inline-block; width: 14px; height: 14px; border: 2px solid #ddd; border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏪 Narxlar Paneli</h1>
+  <a href="/logout">Chiqish →</a>
+</header>
+
+<div class="container">
+  <div class="main">
+    <h2>🔍 Model qidirish</h2>
+    <textarea id="query" placeholder="Model nomlarini yozing (yangi qatordan yoki vergul bilan)&#10;Masalan:&#10;DS-7608NI-Q1&#10;DS-2CD2043G2-I"></textarea>
+    <div class="row">
+      <button class="btn" onclick="doSearch()" id="searchBtn">Qidirish</button>
+      <span id="searchStatus"></span>
+    </div>
+    <div class="results" id="results"></div>
+  </div>
+
+  <div class="sidebar">
+    <h2>📦 Do'konlar</h2>
+    <div id="stores"></div>
+  </div>
+</div>
+
+<!-- Upload modal -->
+<div class="modal" id="uploadModal">
+  <div class="modal-content">
+    <span class="modal-close" onclick="closeModal()">×</span>
+    <h3 id="modalTitle">Fayl yuklash</h3>
+
+    <div class="tab-btns">
+      <button class="tab-btn active" onclick="switchTab('file')">📎 Fayl yuklash</button>
+      <button class="tab-btn" onclick="switchTab('url')">🔗 URL orqali</button>
+    </div>
+
+    <div class="tab-content active" id="tab-file">
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm">
+      <div class="row">
+        <button class="btn" onclick="uploadFile()">Yuklash</button>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-url">
+      <input type="text" id="urlInput" placeholder="Google Drive yoki Sheets havolasi">
+      <div class="row">
+        <button class="btn" onclick="uploadUrl()">Yuklash</button>
+      </div>
+    </div>
+
+    <div class="status" id="uploadStatus"></div>
+  </div>
+</div>
+
+<script>
+let currentStore = null;
+
+async function loadStores() {
+  const res = await fetch('/api/stores');
+  const stores = await res.json();
+  const el = document.getElementById('stores');
+  el.innerHTML = stores.map(s => `
+    <div class="store-item">
+      <div>
+        <div class="store-name">${s.name}</div>
+        <div class="store-info">${s.cnt} mahsulot · skidka ${s.discount}%</div>
+      </div>
+      <button class="btn btn-sm btn-ghost" onclick="openModal('${s.name}')">Yangilash</button>
+    </div>
+  `).join('');
+}
+
+function openModal(store) {
+  currentStore = store;
+  document.getElementById('modalTitle').textContent = `${store} — narxlarni yangilash`;
+  document.getElementById('uploadModal').classList.add('open');
+  document.getElementById('uploadStatus').textContent = '';
+  document.getElementById('fileInput').value = '';
+  document.getElementById('urlInput').value = '';
+}
+
+function closeModal() {
+  document.getElementById('uploadModal').classList.remove('open');
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+}
+
+function setStatus(id, msg, ok) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status ' + (ok === true ? 'ok' : ok === false ? 'err' : '');
+}
+
+async function uploadFile() {
+  const f = document.getElementById('fileInput').files[0];
+  if (!f) { setStatus('uploadStatus', 'Fayl tanlang', false); return; }
+  setStatus('uploadStatus', '⏳ Yuklanmoqda...');
+  const fd = new FormData();
+  fd.append('store', currentStore);
+  fd.append('file', f);
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    const j = await res.json();
+    if (j.ok) {
+      setStatus('uploadStatus', `✅ ${j.store} — ${j.count} mahsulot yuklandi (${j.size_mb} MB)`, true);
+      loadStores();
+      setTimeout(closeModal, 2000);
+    } else {
+      setStatus('uploadStatus', '❌ ' + (j.error || 'Xato'), false);
+    }
+  } catch (e) {
+    setStatus('uploadStatus', '❌ ' + e.message, false);
+  }
+}
+
+async function uploadUrl() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) { setStatus('uploadStatus', 'URL kiriting', false); return; }
+  setStatus('uploadStatus', '⏳ URL dan yuklanmoqda...');
+  try {
+    const res = await fetch('/api/upload_url', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ store: currentStore, url })
+    });
+    const j = await res.json();
+    if (j.ok) {
+      setStatus('uploadStatus', `✅ ${j.store} — ${j.count} mahsulot yuklandi (${j.size_mb} MB)`, true);
+      loadStores();
+      setTimeout(closeModal, 2000);
+    } else {
+      setStatus('uploadStatus', '❌ ' + (j.error || 'Xato'), false);
+    }
+  } catch (e) {
+    setStatus('uploadStatus', '❌ ' + e.message, false);
+  }
+}
+
+async function doSearch() {
+  const q = document.getElementById('query').value.trim();
+  if (!q) return;
+  const btn = document.getElementById('searchBtn');
+  btn.disabled = true;
+  document.getElementById('searchStatus').innerHTML = '<span class="loader"></span> Qidirilmoqda...';
+  document.getElementById('results').innerHTML = '';
+  try {
+    const res = await fetch('/api/search', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q })
+    });
+    const j = await res.json();
+    document.getElementById('searchStatus').textContent = '';
+    renderResults(j);
+  } catch (e) {
+    document.getElementById('searchStatus').textContent = '❌ ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderResults(j) {
+  const el = document.getElementById('results');
+  if (j.error) { el.innerHTML = `<div class="not-found">${j.error}</div>`; return; }
+  let html = '';
+  for (const [model, list] of Object.entries(j.found || {})) {
+    html += `<div class="model-block"><div class="model-title">🔍 ${escapeHtml(model)}</div>`;
+    html += '<table><thead><tr><th>Do\'kon</th><th>Asl narx</th><th>Skidka</th><th>Siz uchun</th><th>Xususiyat</th></tr></thead><tbody>';
+    for (const r of list) {
+      if (r.special === 'ezviz') {
+        html += `<tr><td>📦 <b>${r.store}</b></td>
+          <td class="old-price">${r.price.toFixed(2)} $</td>
+          <td class="discount">${r.discount_label}</td>
+          <td class="price">${r.final.toFixed(2)} $ / ${r.final2.toFixed(2)} $</td>
+          <td class="desc">${escapeHtml(r.description || '')}</td></tr>`;
+      } else if (r.special === 'mus') {
+        html += `<tr><td>📦 <b>${r.store}</b></td>
+          <td>${r.price.toFixed(2)} $</td>
+          <td>—</td>
+          <td class="price">${r.final.toFixed(2)} $</td>
+          <td class="desc">${escapeHtml(r.description || '')}</td></tr>`;
+      } else {
+        html += `<tr><td>📦 <b>${r.store}</b></td>
+          <td class="old-price">${r.price.toFixed(2)} $</td>
+          <td class="discount">${r.discount_label}</td>
+          <td class="price">${r.final.toFixed(2)} $</td>
+          <td class="desc">${escapeHtml(r.description || '')}</td></tr>`;
+      }
+    }
+    html += '</tbody></table></div>';
+  }
+  if ((j.not_found || []).length) {
+    html += '<div class="not-found">❌ <b>Topilmadi:</b><br>' + j.not_found.map(escapeHtml).join('<br>') + '</div>';
+  }
+  el.innerHTML = html || '<div class="not-found">Natija yo\'q</div>';
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+document.getElementById('query').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.ctrlKey) doSearch();
+});
+
+loadStores();
+</script>
+</body>
+</html>

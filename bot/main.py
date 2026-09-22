@@ -9,6 +9,7 @@ from aiohttp import web
 from .config import BOT_TOKEN, PORT
 from .database import init_db
 from .handlers import user, admin
+from . import web as web_panel
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,20 +18,15 @@ logging.basicConfig(
 log = logging.getLogger("bot")
 
 
-async def health(request):
-    return web.Response(text="OK")
-
-
-async def start_health_server():
-    """Small aiohttp server so Render web service stays alive."""
-    app = web.Application()
-    app.router.add_get("/", health)
-    app.router.add_get("/health", health)
+async def start_web_server():
+    """aiohttp: web panel + health endpoint on same port."""
+    app = web.Application(client_max_size=500 * 1024 * 1024)  # 500 MB uploads
+    web_panel.register_routes(app)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    log.info(f"Health server ishga tushdi: 0.0.0.0:{PORT}")
+    log.info(f"Web panel ishga tushdi: 0.0.0.0:{PORT}")
 
 
 async def main():
@@ -45,7 +41,7 @@ async def main():
     dp.include_router(admin.router)
     dp.include_router(user.router)
 
-    await start_health_server()
+    await start_web_server()
 
     log.info("Bot ishga tushdi (polling)")
     await bot.delete_webhook(drop_pending_updates=True)
