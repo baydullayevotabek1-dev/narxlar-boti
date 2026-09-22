@@ -29,24 +29,34 @@ def search_models(queries: list[str]) -> tuple[dict, list[str]]:
         matches: list[dict] = []
         seen_stores = set()
 
-        # exact norm match — ALL stores that have the model exactly
-        if qn in norm_map:
-            for p in norm_map[qn]:
+        def take(norm_key: str, kind: str):
+            for p in norm_map.get(norm_key, []):
                 if p["store"] in seen_stores:
                     continue
-                matches.append(p)
+                matches.append({**p, "match_kind": kind})
                 seen_stores.add(p["store"])
 
-        # fuzzy match — find variants in stores that don't have exact match
+        # 1) exact normalized match — ALL stores that have the model exactly
+        if qn in norm_map:
+            take(qn, "exact")
+
+        # 2) variant match — stored model is the query plus a suffix, e.g.
+        #    query "DS-7608NI-Q1" -> "DS-7608NI-Q1(STD)(C)". Same product, different packaging.
+        #    Sorted so the shortest suffix (closest variant) wins per store.
+        variants = sorted(
+            (k for k in norm_keys if k != qn and k.startswith(qn)),
+            key=len,
+        )
+        for key in variants:
+            take(key, "variant")
+
+        # 3) fuzzy match — only for stores still unmatched, and only above a
+        #    stricter bar, because a near-miss here means a DIFFERENT product.
         fuzz_results = process.extract(
             qn, norm_keys, scorer=fuzz.WRatio, limit=30, score_cutoff=FUZZY_THRESHOLD
         )
         for norm_key, score, _ in fuzz_results:
-            for p in norm_map[norm_key]:
-                if p["store"] in seen_stores:
-                    continue
-                matches.append(p)
-                seen_stores.add(p["store"])
+            take(norm_key, "fuzzy")
 
         if matches:
             result_list = []
@@ -60,6 +70,7 @@ def search_models(queries: list[str]) -> tuple[dict, list[str]]:
                     "discount": disc,
                     "final": final,
                     "description": p.get("description", "") or "",
+                    "match_kind": p.get("match_kind", "exact"),
                 })
             found[q_clean] = result_list
         else:

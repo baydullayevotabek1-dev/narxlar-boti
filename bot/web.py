@@ -220,36 +220,35 @@ async def api_search(request: web.Request):
             store = r["store"]
             price = r["price"]
             is_best = min_final is not None and abs(r["final"] - min_final) < 0.01
+            common = {
+                "store": store,
+                "price": price,
+                "description": r.get("description", ""),
+                "is_best": is_best,
+                "matched_model": r.get("model", ""),
+                "match_kind": r.get("match_kind", "exact"),
+            }
             if store.lower() == "ezviz":
                 out.append({
-                    "store": store,
-                    "price": price,
-                    "discount_label": f"-20% / -15%",
+                    **common,
+                    "discount_label": "-20% / -15%",
                     "final": round(price * 0.80, 2),
                     "final2": round(price * (1 - EZVIZ_SECONDARY_DISCOUNT / 100), 2),
-                    "description": r.get("description", ""),
                     "special": "ezviz",
-                    "is_best": is_best,
                 })
             elif store.lower() == "mus":
                 out.append({
-                    "store": store,
-                    "price": price,
+                    **common,
                     "discount_label": "—",
                     "final": price,
-                    "description": r.get("description", ""),
                     "special": "mus",
-                    "is_best": is_best,
                 })
             else:
                 out.append({
-                    "store": store,
-                    "price": price,
+                    **common,
                     "discount_label": f"-{r['discount']:.0f}%",
                     "final": r["final"],
-                    "description": r.get("description", ""),
                     "special": None,
-                    "is_best": is_best,
                 })
         formatted[q] = out
 

@@ -53,6 +53,9 @@
   .desc { font-size: 12px; color: #666; margin-top: 4px; }
   .not-found { background: #fff3cd; border: 1px solid #ffe08a; padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 14px; color: #856404; }
   .best-badge { display: inline-block; background: #27ae60; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; margin-left: 6px; }
+  .matched-model { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #444; }
+  .kind-fuzzy { display: inline-block; background: #fff3cd; color: #856404; border: 1px solid #ffe08a; padding: 1px 6px; border-radius: 8px; font-size: 10px; white-space: nowrap; }
+  .kind-variant { display: inline-block; background: #eef1fb; color: #5568d3; padding: 1px 6px; border-radius: 8px; font-size: 10px; }
   tr.best-row { background: linear-gradient(90deg, #d5f5e3 0%, #fff 60%); }
   .copy-btn { background: #f0f0f0; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #555; margin-top: 8px; }
   .copy-btn:hover { background: #e0e0e0; }
@@ -359,29 +362,26 @@ function renderResults(j) {
   for (const [model, list] of Object.entries(j.found || {})) {
     const bid = 'blk_' + (blockIdx++);
     html += `<div class="model-block" id="${bid}"><div class="model-title">🔍 ${escapeHtml(model)}</div>`;
-    html += '<table><thead><tr><th>Do\'kon</th><th>Asl narx</th><th>Skidka</th><th>Siz uchun</th><th>Xususiyat</th></tr></thead><tbody>';
+    html += '<table><thead><tr><th>Do\'kon</th><th>Topilgan model</th><th>Asl narx</th><th>Skidka</th><th>Siz uchun</th><th>Xususiyat</th></tr></thead><tbody>';
     for (const r of list) {
       const badge = r.is_best ? '<span class="best-badge">🏆 ARZON</span>' : '';
       const rowClass = r.is_best ? 'best-row' : '';
-      if (r.special === 'ezviz') {
-        html += `<tr class="${rowClass}"><td>📦 <b>${r.store}</b>${badge}</td>
-          <td class="old-price">${r.price.toFixed(2)} $</td>
-          <td class="discount">${r.discount_label}</td>
-          <td class="price">${r.final.toFixed(2)} $ / ${r.final2.toFixed(2)} $</td>
-          <td class="desc">${escapeHtml(r.description || '')}</td></tr>`;
-      } else if (r.special === 'mus') {
-        html += `<tr class="${rowClass}"><td>📦 <b>${r.store}</b>${badge}</td>
-          <td>${r.price.toFixed(2)} $</td>
-          <td>—</td>
-          <td class="price">${r.final.toFixed(2)} $</td>
-          <td class="desc">${escapeHtml(r.description || '')}</td></tr>`;
-      } else {
-        html += `<tr class="${rowClass}"><td>📦 <b>${r.store}</b>${badge}</td>
-          <td class="old-price">${r.price.toFixed(2)} $</td>
-          <td class="discount">${r.discount_label}</td>
-          <td class="price">${r.final.toFixed(2)} $</td>
-          <td class="desc">${escapeHtml(r.description || '')}</td></tr>`;
-      }
+      const kindTag = r.match_kind === 'fuzzy'
+        ? '<span class="kind-fuzzy" title="Aniq mos kelmadi — tekshiring">⚠️ taxminiy</span>'
+        : (r.match_kind === 'variant' ? '<span class="kind-variant">variant</span>' : '');
+      const modelCell = `<td class="matched-model">${escapeHtml(r.matched_model || '')} ${kindTag}</td>`;
+      const priceCell = r.special === 'ezviz'
+        ? `<td class="price">${r.final.toFixed(2)} $ / ${r.final2.toFixed(2)} $</td>`
+        : `<td class="price">${r.final.toFixed(2)} $</td>`;
+      const origCell = r.special === 'mus'
+        ? `<td>${r.price.toFixed(2)} $</td>`
+        : `<td class="old-price">${r.price.toFixed(2)} $</td>`;
+      const discCell = r.special === 'mus'
+        ? '<td>—</td>'
+        : `<td class="discount">${r.discount_label}</td>`;
+      html += `<tr class="${rowClass}"><td>📦 <b>${r.store}</b>${badge}</td>
+        ${modelCell}${origCell}${discCell}${priceCell}
+        <td class="desc">${escapeHtml(r.description || '')}</td></tr>`;
     }
     html += '</tbody></table>';
     const aiDesc = (j.ai || {})[model] || '';
@@ -405,12 +405,13 @@ function copyBlock(bid, model) {
   let text = `${model}\n`;
   let best = null;
   for (const r of list) {
+    const mm = r.matched_model && r.matched_model !== model ? ` [${r.matched_model}]` : '';
     if (r.special === 'ezviz') {
-      text += `${r.store}: ${r.final.toFixed(2)} $ (-20%) / ${r.final2.toFixed(2)} $ (-15%)\n`;
+      text += `${r.store}${mm}: ${r.final.toFixed(2)} $ (-20%) / ${r.final2.toFixed(2)} $ (-15%)\n`;
     } else if (r.special === 'mus') {
-      text += `${r.store}: ${r.final.toFixed(2)} $\n`;
+      text += `${r.store}${mm}: ${r.final.toFixed(2)} $\n`;
     } else {
-      text += `${r.store}: ${r.final.toFixed(2)} $ (${r.discount_label})\n`;
+      text += `${r.store}${mm}: ${r.final.toFixed(2)} $ (${r.discount_label})\n`;
     }
     if (r.is_best && !best) best = r.store;
   }
