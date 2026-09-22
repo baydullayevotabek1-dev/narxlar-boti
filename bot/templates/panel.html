@@ -11,6 +11,9 @@
   header h1 { font-size: 18px; color: #667eea; }
   header a { color: #888; text-decoration: none; font-size: 14px; }
   header a:hover { color: #333; }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  .role-admin { background: #667eea; color: #fff; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .role-user { background: #e0e0e0; color: #555; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
   .container { max-width: 1200px; margin: 0 auto; padding: 24px; display: grid; grid-template-columns: 1fr 320px; gap: 24px; }
   @media (max-width: 900px) { .container { grid-template-columns: 1fr; } }
   .main { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
@@ -62,7 +65,10 @@
 <body>
 <header>
   <h1>🏪 Narxlar Paneli</h1>
-  <a href="/logout">Chiqish →</a>
+  <div class="header-right">
+    {{ROLE_BADGE}}
+    <a href="/logout">Chiqish →</a>
+  </div>
 </header>
 
 <div class="container">
@@ -112,6 +118,7 @@
 </div>
 
 <script>
+const IS_ADMIN = {{IS_ADMIN}};
 let currentStore = null;
 
 async function loadStores() {
@@ -124,7 +131,7 @@ async function loadStores() {
         <div class="store-name">${s.name}</div>
         <div class="store-info">${s.cnt} mahsulot · skidka ${s.discount}%</div>
       </div>
-      <button class="btn btn-sm btn-ghost" onclick="openModal('${s.name}')">Yangilash</button>
+      ${IS_ADMIN ? `<button class="btn btn-sm btn-ghost" onclick="openModal('${s.name}')">Yangilash</button>` : ''}
     </div>
   `).join('');
 }

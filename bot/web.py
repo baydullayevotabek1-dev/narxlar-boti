@@ -9,7 +9,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .config import SITE_PASSWORD, SESSION_SECRET, EZVIZ_SECONDARY_DISCOUNT
+from .config import SITE_PASSWORD, ADMIN_PASSWORD, SESSION_SECRET, EZVIZ_SECONDARY_DISCOUNT
 from .database import list_stores, set_discount, replace_products, stats
 from .parser import parse_excel
 from .search import search_models
@@ -28,25 +28,40 @@ def _sign(data: str) -> str:
     return hmac.new(SESSION_SECRET.encode(), data.encode(), hashlib.sha256).hexdigest()[:32]
 
 
-def _make_session() -> str:
+def _make_session(role: str) -> str:
+    """role: 'user' or 'admin'"""
     ts = str(int(time.time()))
-    return f"{ts}.{_sign(ts)}"
+    payload = f"{ts}.{role}"
+    return f"{payload}.{_sign(payload)}"
 
 
-def _valid_session(token: str) -> bool:
-    if not token or "." not in token:
-        return False
-    ts, sig = token.split(".", 1)
-    if _sign(ts) != sig:
-        return False
+def _session_role(token: str) -> str | None:
+    """Return 'user', 'admin', or None if invalid/expired."""
+    if not token or token.count(".") != 2:
+        return None
+    ts, role, sig = token.split(".", 2)
+    if _sign(f"{ts}.{role}") != sig:
+        return None
+    if role not in ("user", "admin"):
+        return None
     try:
-        return time.time() - int(ts) < SESSION_TTL
+        if time.time() - int(ts) > SESSION_TTL:
+            return None
     except ValueError:
-        return False
+        return None
+    return role
+
+
+def _current_role(request: web.Request) -> str | None:
+    return _session_role(request.cookies.get(SESSION_COOKIE, ""))
 
 
 def _is_logged_in(request: web.Request) -> bool:
-    return _valid_session(request.cookies.get(SESSION_COOKIE, ""))
+    return _current_role(request) is not None
+
+
+def _is_admin(request: web.Request) -> bool:
+    return _current_role(request) == "admin"
 
 
 def _render(name: str, **ctx) -> str:
@@ -68,10 +83,14 @@ async def page_login(request: web.Request):
 async def api_login(request: web.Request):
     data = await request.post()
     password = (data.get("password") or "").strip()
-    if password != SITE_PASSWORD:
+    if password == ADMIN_PASSWORD:
+        role = "admin"
+    elif password == SITE_PASSWORD:
+        role = "user"
+    else:
         raise web.HTTPFound("/?err=1")
     resp = web.HTTPFound("/panel")
-    resp.set_cookie(SESSION_COOKIE, _make_session(), max_age=SESSION_TTL, httponly=True, samesite="Lax")
+    resp.set_cookie(SESSION_COOKIE, _make_session(role), max_age=SESSION_TTL, httponly=True, samesite="Lax")
     raise resp
 
 
@@ -82,15 +101,26 @@ async def api_logout(request: web.Request):
 
 
 async def page_panel(request: web.Request):
-    if not _is_logged_in(request):
+    role = _current_role(request)
+    if not role:
         raise web.HTTPFound("/")
-    html = _render("panel.html")
+    role_html = (
+        '<span class="role-admin">🛠 Admin</span>' if role == "admin"
+        else '<span class="role-user">👤 Menejer</span>'
+    )
+    is_admin_json = "true" if role == "admin" else "false"
+    html = _render("panel.html", ROLE_BADGE=role_html, IS_ADMIN=is_admin_json)
     return web.Response(text=html, content_type="text/html")
 
 
 def _require_auth(request: web.Request):
     if not _is_logged_in(request):
         raise web.HTTPUnauthorized(text="Login kerak")
+
+
+def _require_admin(request: web.Request):
+    if not _is_admin(request):
+        raise web.HTTPForbidden(text="Faqat admin uchun")
 
 
 async def api_stores(request: web.Request):
@@ -159,7 +189,7 @@ async def api_search(request: web.Request):
 
 
 async def api_upload(request: web.Request):
-    _require_auth(request)
+    _require_admin(request)
     reader = await request.multipart()
     store = None
     filename = ""
@@ -200,7 +230,7 @@ async def api_upload(request: web.Request):
 
 
 async def api_upload_url(request: web.Request):
-    _require_auth(request)
+    _require_admin(request)
     data = await request.json()
     store = (data.get("store") or "").strip()
     url = (data.get("url") or "").strip()
@@ -228,7 +258,7 @@ async def api_upload_url(request: web.Request):
 
 
 async def api_set_discount(request: web.Request):
-    _require_auth(request)
+    _require_admin(request)
     data = await request.json()
     store = (data.get("store") or "").strip()
     try:

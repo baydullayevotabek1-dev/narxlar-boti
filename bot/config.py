@@ -8,6 +8,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ADMIN_IDS = [int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
 PORT = int(os.getenv("PORT", "10000"))
 SITE_PASSWORD = os.getenv("SITE_PASSWORD", "mus2026")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "mus-admin-2026")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "change-me-in-production-xy7kq9")
 
 DB_PATH = os.getenv("DB_PATH", "data/prices.db")
