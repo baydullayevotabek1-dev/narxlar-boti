@@ -104,8 +104,14 @@ def replace_products(store: str, items: list[dict]):
     import time
     now = int(time.time())
     with get_conn() as c:
-        # ensure store exists
-        c.execute("INSERT OR IGNORE INTO stores(name, discount) VALUES(?, 0)", (store,))
+        # Reuse existing store row (case-insensitive) so its discount is never reset
+        existing = c.execute(
+            "SELECT name FROM stores WHERE lower(name)=lower(?)", (store,)
+        ).fetchone()
+        if existing:
+            store = existing["name"]
+        else:
+            c.execute("INSERT INTO stores(name, discount) VALUES(?, 0)", (store,))
         c.execute("DELETE FROM products WHERE lower(store)=lower(?)", (store,))
         c.executemany(
             "INSERT INTO products(store, model, model_norm, price, description) VALUES(?,?,?,?,?)",

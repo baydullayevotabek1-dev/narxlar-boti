@@ -184,6 +184,7 @@ async function loadStores() {
         ${s.updated_str ? `<div class="store-date">🔄 ${s.updated_str}</div>` : `<div class="store-date">—</div>`}
       </div>
       ${IS_ADMIN ? `<div class="store-actions">
+        <button class="btn btn-sm btn-ghost" onclick="editDiscount('${escapeHtml(s.name)}', ${s.discount})" title="Skidka">%</button>
         <button class="btn btn-sm btn-ghost" onclick="openModal('${escapeHtml(s.name)}')">Yangilash</button>
         <button class="btn btn-sm btn-danger" onclick="deleteStore('${escapeHtml(s.name)}')" title="O'chirish">🗑</button>
       </div>` : ''}
@@ -220,6 +221,24 @@ async function submitAddStore() {
     }
   } catch (e) {
     setStatus('addStoreStatus', '❌ ' + e.message, false);
+  }
+}
+
+async function editDiscount(name, current) {
+  const val = prompt(`"${name}" uchun skidka % (hozir ${current}%):`, current);
+  if (val === null) return;
+  const disc = parseFloat(val);
+  if (isNaN(disc) || disc < 0 || disc > 99) { alert('Skidka 0-99 oralig\'ida bo\'lishi kerak'); return; }
+  try {
+    const res = await fetch('/api/set_discount', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({store: name, discount: disc})
+    });
+    const j = await res.json();
+    if (j.ok) loadStores();
+    else alert('Xato: ' + (j.error || 'noma\'lum'));
+  } catch (e) {
+    alert('Xato: ' + e.message);
   }
 }
 
