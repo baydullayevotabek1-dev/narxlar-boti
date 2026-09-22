@@ -10,11 +10,15 @@ from pathlib import Path
 from aiohttp import web
 
 from .config import SITE_PASSWORD, ADMIN_PASSWORD, SESSION_SECRET, EZVIZ_SECONDARY_DISCOUNT
-from .database import list_stores, set_discount, replace_products, stats
+from .database import (
+    list_stores, set_discount, replace_products, stats, add_store, delete_store,
+    log_search, suggest_models, stats_top_models, stats_cheapest_stores, stats_totals,
+)
 from .parser import parse_excel
 from .search import search_models
 from .store_detect import detect_store
 from .url_download import download_url
+from .gemini import describe_model
 
 log = logging.getLogger(__name__)
 
@@ -125,8 +129,44 @@ def _require_admin(request: web.Request):
 
 async def api_stores(request: web.Request):
     _require_auth(request)
+    import datetime
     rows = list_stores()
+    for r in rows:
+        ts = r.get("updated_at") or 0
+        if ts:
+            dt = datetime.datetime.fromtimestamp(ts)
+            r["updated_str"] = dt.strftime("%d.%m.%Y %H:%M")
+        else:
+            r["updated_str"] = ""
     return web.json_response(rows)
+
+
+async def api_add_store(request: web.Request):
+    _require_admin(request)
+    data = await request.json()
+    name = (data.get("name") or "").strip()
+    try:
+        discount = float(data.get("discount", 0))
+    except (TypeError, ValueError):
+        return web.json_response({"error": "Skidka raqam bo'lishi kerak"}, status=400)
+    if not name or len(name) > 50:
+        return web.json_response({"error": "Do'kon nomi noto'g'ri"}, status=400)
+    if discount < 0 or discount > 99:
+        return web.json_response({"error": "Skidka 0-99 oralig'ida"}, status=400)
+    ok = add_store(name, discount)
+    if not ok:
+        return web.json_response({"error": f"'{name}' allaqachon mavjud"}, status=400)
+    return web.json_response({"ok": True, "store": name, "discount": discount})
+
+
+async def api_delete_store(request: web.Request):
+    _require_admin(request)
+    data = await request.json()
+    name = (data.get("name") or "").strip()
+    if not name:
+        return web.json_response({"error": "Nomi kerak"}, status=400)
+    delete_store(name)
+    return web.json_response({"ok": True})
 
 
 async def api_search(request: web.Request):
@@ -148,13 +188,38 @@ async def api_search(request: web.Request):
         return web.json_response({"error": "Max 60 ta model"})
     found, not_found = await asyncio.to_thread(search_models, queries)
 
-    # Format results with Ezviz two-discount handling
+    # Log each query with cheapest store
+    for q in queries:
+        results = found.get(q, [])
+        cheapest = ""
+        if results:
+            min_r = min(results, key=lambda r: r["final"])
+            cheapest = min_r["store"]
+        await asyncio.to_thread(log_search, q, len(results), cheapest)
+
+    # Format results with Ezviz two-discount handling + AI descriptions
     formatted = {}
+    ai_descriptions = {}
+    ai_tasks = []
+    for q, results in found.items():
+        # kick off AI description in parallel (uses cache if available)
+        existing_desc = results[0].get("description", "") if results else ""
+        ai_tasks.append((q, asyncio.create_task(describe_model(q, existing_desc))))
+
+    for q, task in ai_tasks:
+        try:
+            ai_descriptions[q] = await task
+        except Exception:
+            ai_descriptions[q] = ""
+
     for q, results in found.items():
         out = []
+        # Compute cheapest final price for badge
+        min_final = min((r["final"] for r in results), default=None)
         for r in results:
             store = r["store"]
             price = r["price"]
+            is_best = min_final is not None and abs(r["final"] - min_final) < 0.01
             if store.lower() == "ezviz":
                 out.append({
                     "store": store,
@@ -164,6 +229,7 @@ async def api_search(request: web.Request):
                     "final2": round(price * (1 - EZVIZ_SECONDARY_DISCOUNT / 100), 2),
                     "description": r.get("description", ""),
                     "special": "ezviz",
+                    "is_best": is_best,
                 })
             elif store.lower() == "mus":
                 out.append({
@@ -173,6 +239,7 @@ async def api_search(request: web.Request):
                     "final": price,
                     "description": r.get("description", ""),
                     "special": "mus",
+                    "is_best": is_best,
                 })
             else:
                 out.append({
@@ -182,10 +249,11 @@ async def api_search(request: web.Request):
                     "final": r["final"],
                     "description": r.get("description", ""),
                     "special": None,
+                    "is_best": is_best,
                 })
         formatted[q] = out
 
-    return web.json_response({"found": formatted, "not_found": not_found})
+    return web.json_response({"found": formatted, "ai": ai_descriptions, "not_found": not_found})
 
 
 async def api_upload(request: web.Request):
@@ -269,6 +337,35 @@ async def api_set_discount(request: web.Request):
     return web.json_response({"ok": True})
 
 
+async def api_suggest(request: web.Request):
+    _require_auth(request)
+    q = request.query.get("q", "").strip()
+    suggestions = await asyncio.to_thread(suggest_models, q, 10)
+    return web.json_response(suggestions)
+
+
+async def api_stats(request: web.Request):
+    _require_admin(request)
+    totals = stats_totals()
+    top = stats_top_models(20)
+    cheapest = stats_cheapest_stores()
+    total_products, by_store = stats()
+    return web.json_response({
+        "searches": totals,
+        "top_models": top,
+        "cheapest_stores": cheapest,
+        "total_products": total_products,
+        "products_by_store": by_store,
+    })
+
+
+async def page_stats(request: web.Request):
+    if not _is_admin(request):
+        raise web.HTTPFound("/panel")
+    html = _render("stats.html")
+    return web.Response(text=html, content_type="text/html")
+
+
 async def health(request):
     return web.Response(text="OK")
 
@@ -283,4 +380,9 @@ def register_routes(app: web.Application):
     app.router.add_post("/api/upload", api_upload)
     app.router.add_post("/api/upload_url", api_upload_url)
     app.router.add_post("/api/set_discount", api_set_discount)
+    app.router.add_post("/api/add_store", api_add_store)
+    app.router.add_post("/api/delete_store", api_delete_store)
+    app.router.add_get("/api/suggest", api_suggest)
+    app.router.add_get("/api/stats", api_stats)
+    app.router.add_get("/stats", page_stats)
     app.router.add_get("/health", health)

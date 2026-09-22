@@ -1,15 +1,13 @@
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.fsm.storage.memory import MemoryStorage
+import os
 from aiohttp import web
 
-from .config import BOT_TOKEN, PORT
+from .config import PORT
 from .database import init_db
-from .handlers import user, admin
 from . import web as web_panel
+
+ENABLE_TELEGRAM_BOT = os.getenv("ENABLE_TELEGRAM_BOT", "0") == "1"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,19 +31,27 @@ async def main():
     init_db()
     log.info("Baza tayyor")
 
-    bot = Bot(
-        token=BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
-    dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(admin.router)
-    dp.include_router(user.router)
-
     await start_web_server()
 
-    log.info("Bot ishga tushdi (polling)")
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    if ENABLE_TELEGRAM_BOT:
+        from aiogram import Bot, Dispatcher
+        from aiogram.client.default import DefaultBotProperties
+        from aiogram.enums import ParseMode
+        from aiogram.fsm.storage.memory import MemoryStorage
+        from .config import BOT_TOKEN
+        from .handlers import user, admin
+        bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        dp = Dispatcher(storage=MemoryStorage())
+        dp.include_router(admin.router)
+        dp.include_router(user.router)
+        log.info("Telegram bot ishga tushdi (polling)")
+        await bot.delete_webhook(drop_pending_updates=True)
+        await dp.start_polling(bot)
+    else:
+        log.info("Telegram bot o'chirilgan (faqat sayt ishlaydi)")
+        # Keep event loop alive
+        while True:
+            await asyncio.sleep(3600)
 
 
 if __name__ == "__main__":

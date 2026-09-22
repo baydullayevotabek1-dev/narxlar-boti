@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Statistika — Narxlar Paneli</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f6fa; color: #333; }
+  header { background: #fff; padding: 16px 24px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 18px; color: #667eea; }
+  header a { color: #888; text-decoration: none; font-size: 14px; margin-left: 16px; }
+  header a:hover { color: #333; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 24px; }
+  .card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+  .stat-value { font-size: 32px; font-weight: 700; color: #667eea; margin: 8px 0; }
+  .stat-label { color: #888; font-size: 13px; text-transform: uppercase; }
+  h2 { font-size: 16px; margin-bottom: 14px; color: #444; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid #eee; font-size: 14px; }
+  th { background: #f7f8fa; font-weight: 600; color: #666; font-size: 12px; text-transform: uppercase; }
+  .rank { color: #999; font-weight: 700; }
+  .bar { height: 8px; background: #667eea; border-radius: 4px; margin-top: 4px; }
+  .bar-bg { background: #f0f2f7; border-radius: 4px; overflow: hidden; }
+  @media (max-width: 600px) { .container { padding: 12px; } .stat-value { font-size: 24px; } table { font-size: 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 Statistika</h1>
+  <div>
+    <a href="/panel">← Panel</a>
+    <a href="/logout">Chiqish →</a>
+  </div>
+</header>
+
+<div class="container">
+  <div class="grid">
+    <div class="card">
+      <div class="stat-label">Jami qidiruvlar</div>
+      <div class="stat-value" id="totalSearches">—</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Topilgan mahsulotlar</div>
+      <div class="stat-value" id="foundCount">—</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Bazadagi mahsulotlar</div>
+      <div class="stat-value" id="totalProducts">—</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>🔥 Eng ko'p qidirilgan modellar</h2>
+      <table>
+        <thead><tr><th>#</th><th>Model</th><th>Marta</th></tr></thead>
+        <tbody id="topModels"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>💰 Eng arzon do'kon (chastota)</h2>
+      <table>
+        <thead><tr><th>Do'kon</th><th>Marta arzon chiqdi</th></tr></thead>
+        <tbody id="cheapestStores"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>📦 Do'konlar bo'yicha mahsulot soni</h2>
+      <table>
+        <thead><tr><th>Do'kon</th><th>Mahsulot</th></tr></thead>
+        <tbody id="productsByStore"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+function escapeHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function load() {
+  const res = await fetch('/api/stats');
+  const j = await res.json();
+  document.getElementById('totalSearches').textContent = j.searches.total;
+  document.getElementById('foundCount').textContent = j.searches.found;
+  document.getElementById('totalProducts').textContent = j.total_products;
+
+  const topBody = document.getElementById('topModels');
+  if (!j.top_models.length) topBody.innerHTML = '<tr><td colspan=3 style="color:#999">Hali qidiruv yo\'q</td></tr>';
+  else topBody.innerHTML = j.top_models.map((m, i) =>
+    `<tr><td class="rank">${i+1}</td><td>${escapeHtml(m.query)}</td><td>${m.n}</td></tr>`
+  ).join('');
+
+  const chBody = document.getElementById('cheapestStores');
+  const maxN = Math.max(1, ...j.cheapest_stores.map(c => c.n));
+  if (!j.cheapest_stores.length) chBody.innerHTML = '<tr><td colspan=2 style="color:#999">Hali ma\'lumot yo\'q</td></tr>';
+  else chBody.innerHTML = j.cheapest_stores.map(c =>
+    `<tr><td><b>${escapeHtml(c.cheapest_store)}</b></td><td>${c.n} <div class="bar-bg"><div class="bar" style="width:${(c.n/maxN*100).toFixed(0)}%"></div></div></td></tr>`
+  ).join('');
+
+  const pBody = document.getElementById('productsByStore');
+  const maxP = Math.max(1, ...j.products_by_store.map(p => p.n));
+  pBody.innerHTML = j.products_by_store.map(p =>
+    `<tr><td><b>${escapeHtml(p.store)}</b></td><td>${p.n} <div class="bar-bg"><div class="bar" style="width:${(p.n/maxP*100).toFixed(0)}%"></div></div></td></tr>`
+  ).join('') || '<tr><td colspan=2 style="color:#999">Hali mahsulot yo\'q</td></tr>';
+}
+load();
+</script>
+</body>
+</html>
