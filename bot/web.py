@@ -215,11 +215,19 @@ async def api_search(request: web.Request):
     for q, results in found.items():
         out = []
         # Compute cheapest final price for badge
-        min_final = min((r["final"] for r in results), default=None)
+        # Only compare like with like: a different-spec row ("/VPRO") must not
+        # win the cheapest badge against the model the user actually asked for.
+        same_product = [r for r in results if r.get("match_kind") != "other"]
+        min_final = min((r["final"] for r in (same_product or results)), default=None)
+        best_pool = {id(r) for r in (same_product or results)}
         for r in results:
             store = r["store"]
             price = r["price"]
-            is_best = min_final is not None and abs(r["final"] - min_final) < 0.01
+            is_best = (
+                min_final is not None
+                and id(r) in best_pool
+                and abs(r["final"] - min_final) < 0.01
+            )
             common = {
                 "store": store,
                 "price": price,

@@ -63,6 +63,8 @@
   .chip-suggest { background: #fff; border-color: #ffd970; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 6px 12px; }
   .chip-suggest:hover { background: #fff3cd; }
   .kind-variant { display: inline-block; background: #eef1fb; color: #5568d3; padding: 1px 6px; border-radius: 8px; font-size: 10px; }
+  .kind-other { display: inline-block; background: #fff3cd; color: #856404; border: 1px solid #ffe08a; padding: 1px 6px; border-radius: 8px; font-size: 10px; white-space: nowrap; }
+  tr:has(.kind-other) .price { color: #e67e22; }
   tr.best-row { background: linear-gradient(90deg, #d5f5e3 0%, #fff 60%); }
   .copy-btn { background: #f0f0f0; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #555; margin-top: 8px; }
   .copy-btn:hover { background: #e0e0e0; }
@@ -373,7 +375,11 @@ function renderResults(j) {
     for (const r of list) {
       const badge = r.is_best ? '<span class="best-badge">🏆 ARZON</span>' : '';
       const rowClass = r.is_best ? 'best-row' : '';
-      const kindTag = r.match_kind === 'variant' ? '<span class="kind-variant">variant</span>' : '';
+      const kindTag = r.match_kind === 'variant'
+        ? '<span class="kind-variant">variant</span>'
+        : (r.match_kind === 'other'
+            ? '<span class="kind-other" title="Boshqa spetsifikatsiya — narxi farq qiladi">⚠️ boshqa versiya</span>'
+            : '');
       const modelCell = `<td class="matched-model">${escapeHtml(r.matched_model || '')} ${kindTag}</td>`;
       const priceCell = r.special === 'ezviz'
         ? `<td class="price">${r.final.toFixed(2)} $ / ${r.final2.toFixed(2)} $</td>`
@@ -425,7 +431,8 @@ function copyBlock(bid, model) {
   let text = `${model}\n`;
   let best = null;
   for (const r of list) {
-    const mm = r.matched_model && r.matched_model !== model ? ` [${r.matched_model}]` : '';
+    const note = r.match_kind === 'other' ? ' (boshqa versiya)' : '';
+    const mm = (r.matched_model && r.matched_model !== model ? ` [${r.matched_model}]` : '') + note;
     if (r.special === 'ezviz') {
       text += `${r.store}${mm}: ${r.final.toFixed(2)} $ (-20%) / ${r.final2.toFixed(2)} $ (-15%)\n`;
     } else if (r.special === 'mus') {

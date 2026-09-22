@@ -86,16 +86,21 @@ def search_models(queries: list[str]) -> tuple[dict, dict, list[str]]:
         if qn in norm_map:
             take(qn, "exact")
 
-        # 2) packaging variant — "DS-7608NI-Q1" -> "DS-7608NI-Q1(STD)(C)".
-        #    Prefix-only is not enough: "DS-7608NXI-K2/VPRO" also starts with
-        #    "DS-7608NXI-K2" but is a pricier product, so it stays a suggestion.
+        # 2) same code plus a suffix. Two kinds, both priced but labelled apart:
+        #    "(D)", "(STD)(C)"  -> packaging only, same product
+        #    "/VPRO", "/8P", "-P" -> a different spec at a different price, so the
+        #    row must say so rather than read as the plain model's price.
+        #    Packaging first, shortest suffix first, so the closest match wins the store.
         prefixed = sorted((k for k in norm_keys if k != qn and k.startswith(qn)), key=len)
-        near_misses: list[str] = []
-        for key in prefixed:
-            if any(_is_packaging_variant(p["model"], qn) for p in norm_map[key]):
-                take(key, "variant")
-            else:
-                near_misses.extend(p["model"] for p in norm_map[key])
+        packaging = [k for k in prefixed if any(_is_packaging_variant(p["model"], qn) for p in norm_map[k])]
+        other = [k for k in prefixed if k not in packaging]
+        for key in packaging:
+            take(key, "variant")
+        for key in other:
+            take(key, "other")
+
+        # Family members that lost their store to a closer match — worth a chip.
+        near_misses = [p["model"] for k in other for p in norm_map[k]]
 
         if matches:
             result_list = []
@@ -112,10 +117,10 @@ def search_models(queries: list[str]) -> tuple[dict, dict, list[str]]:
                     "match_kind": p["match_kind"],
                 })
             found[q_clean] = result_list
-            # Related SKUs like "/VPRO" are still worth surfacing, just not priced
-            # as if they were the answer.
-            if near_misses:
-                suggestions[q_clean] = _dedupe(near_misses)[:8]
+            shown = {p["model"] for p in matches}
+            extra = [n for n in _dedupe(near_misses) if n not in shown]
+            if extra:
+                suggestions[q_clean] = extra[:8]
             continue
 
         # 3) no confident match — offer close model names to pick from instead
