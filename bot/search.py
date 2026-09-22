@@ -3,14 +3,21 @@ from .database import all_products, normalize
 from .config import FUZZY_THRESHOLD
 
 
-def search_models(queries: list[str]) -> tuple[dict, list[str]]:
+def search_models(queries: list[str]) -> tuple[dict, dict, list[str]]:
     """
-    Returns (found, not_found).
-    found: {query: [{store, model, price, discount, final, description}, ...]}
+    Returns (found, suggestions, not_found).
+
+    found:       {query: [{store, model, price, discount, final, description, match_kind}]}
+                 Only confident matches — the exact model or a variant of it
+                 (same code plus a packaging suffix). Prices here are safe to quote.
+    suggestions: {query: [model_name, ...]} — close but different products.
+                 Shown as "did you mean?" instead of prices, so a near-miss can
+                 never be mistaken for the real answer.
+    not_found:   queries with nothing resembling a match.
     """
     products = all_products()
     if not products:
-        return {}, list(queries)
+        return {}, {}, list(queries)
 
     # index: model_norm -> list of product dicts
     norm_map: dict[str, list[dict]] = {}
@@ -19,6 +26,7 @@ def search_models(queries: list[str]) -> tuple[dict, list[str]]:
     norm_keys = list(norm_map.keys())
 
     found: dict[str, list[dict]] = {}
+    suggestions: dict[str, list[str]] = {}
     not_found: list[str] = []
 
     for q in queries:
@@ -41,22 +49,10 @@ def search_models(queries: list[str]) -> tuple[dict, list[str]]:
             take(qn, "exact")
 
         # 2) variant match — stored model is the query plus a suffix, e.g.
-        #    query "DS-7608NI-Q1" -> "DS-7608NI-Q1(STD)(C)". Same product, different packaging.
-        #    Sorted so the shortest suffix (closest variant) wins per store.
-        variants = sorted(
-            (k for k in norm_keys if k != qn and k.startswith(qn)),
-            key=len,
-        )
-        for key in variants:
+        #    query "DS-7608NI-Q1" -> "DS-7608NI-Q1(STD)(C)". Same product,
+        #    different packaging. Shortest suffix first = closest variant.
+        for key in sorted((k for k in norm_keys if k != qn and k.startswith(qn)), key=len):
             take(key, "variant")
-
-        # 3) fuzzy match — only for stores still unmatched, and only above a
-        #    stricter bar, because a near-miss here means a DIFFERENT product.
-        fuzz_results = process.extract(
-            qn, norm_keys, scorer=fuzz.WRatio, limit=30, score_cutoff=FUZZY_THRESHOLD
-        )
-        for norm_key, score, _ in fuzz_results:
-            take(norm_key, "fuzzy")
 
         if matches:
             result_list = []
@@ -70,10 +66,27 @@ def search_models(queries: list[str]) -> tuple[dict, list[str]]:
                     "discount": disc,
                     "final": final,
                     "description": p.get("description", "") or "",
-                    "match_kind": p.get("match_kind", "exact"),
+                    "match_kind": p["match_kind"],
                 })
             found[q_clean] = result_list
+            continue
+
+        # 3) no confident match — offer close model names to pick from instead
+        #    of quoting the price of a product the user did not ask for.
+        close = process.extract(
+            qn, norm_keys, scorer=fuzz.WRatio, limit=20, score_cutoff=FUZZY_THRESHOLD
+        )
+        names: list[str] = []
+        for norm_key, _score, _ in close:
+            for p in norm_map[norm_key]:
+                if p["model"] not in names:
+                    names.append(p["model"])
+            if len(names) >= 8:
+                break
+
+        if names:
+            suggestions[q_clean] = names[:8]
         else:
             not_found.append(q_clean)
 
-    return found, not_found
+    return found, suggestions, not_found

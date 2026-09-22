@@ -85,9 +85,9 @@ async def handle_search(m: Message):
 
     status = await m.answer(f"🔎 Qidirilmoqda... ({len(queries)} ta model)")
 
-    found, not_found = await asyncio.to_thread(search_models, queries)
+    found, suggestions, not_found = await asyncio.to_thread(search_models, queries)
 
-    if not found and not_found:
+    if not found and not suggestions:
         await status.edit_text(
             "😕 Hech qanday model topilmadi.\n\n"
             "❌ <b>Topilmagan:</b>\n" + "\n".join(f"• {q}" for q in not_found)
@@ -157,6 +157,13 @@ async def handle_search(m: Message):
         if len(text) > 3800:
             text = text[:3800] + "\n..."
         await m.answer(text)
+
+    for query, names in suggestions.items():
+        await m.answer(
+            f"🤔 <b>{query}</b> — aniq topilmadi.\n"
+            "Shulardan birini nazarda tutdingizmi?\n\n"
+            + "\n".join(f"• <code>{n}</code>" for n in names)
+        )
 
     if not_found:
         await m.answer(

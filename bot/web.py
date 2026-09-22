@@ -174,7 +174,7 @@ async def api_search(request: web.Request):
     data = await request.json()
     query = (data.get("query") or "").strip()
     if not query:
-        return web.json_response({"found": {}, "not_found": []})
+        return web.json_response({"found": {}, "suggestions": {}, "not_found": []})
     import re
     parts = re.split(r"[\n,;]+", query)
     queries = []
@@ -186,7 +186,7 @@ async def api_search(request: web.Request):
             queries.append(p)
     if len(queries) > 60:
         return web.json_response({"error": "Max 60 ta model"})
-    found, not_found = await asyncio.to_thread(search_models, queries)
+    found, suggestions, not_found = await asyncio.to_thread(search_models, queries)
 
     # Log each query with cheapest store
     for q in queries:
@@ -252,7 +252,12 @@ async def api_search(request: web.Request):
                 })
         formatted[q] = out
 
-    return web.json_response({"found": formatted, "ai": ai_descriptions, "not_found": not_found})
+    return web.json_response({
+        "found": formatted,
+        "ai": ai_descriptions,
+        "suggestions": suggestions,
+        "not_found": not_found,
+    })
 
 
 async def api_upload(request: web.Request):
