@@ -4,7 +4,6 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
 
 from ..search import search_models
-from ..gemini import describe_model
 from ..config import MAX_MODELS_PER_REQUEST, EZVIZ_SECONDARY_DISCOUNT
 
 router = Router()
@@ -83,64 +82,21 @@ async def handle_search(m: Message):
 
     await status.delete()
 
-    # Render each found model as a separate message (or grouped)
-    for query, results in found.items():
-        header = f"🔍 <b>{query}</b>\n"
-        blocks = [header]
-        # AI description (once per query)
-        first_desc = results[0].get("description") or ""
-        ai_desc = ""
-        if not first_desc or len(first_desc) < 5:
-            try:
-                ai_desc = await describe_model(query, first_desc)
-            except Exception:
-                ai_desc = ""
-
-        # sort by final price ascending
-        results.sort(key=lambda r: r["final"])
-
-        for r in results:
-            store = r['store']
-            price = r['price']
-            desc = r.get("description") or ""
-
-            if store.lower() == "mus":
-                # MUS: skidka yo'q, faqat narxlar
-                block = (
-                    f"\n📦 <b>MUS</b>\n"
-                    f"  Narx: <b>{price:.2f} $</b> (skidka yo'q)"
-                )
-                if desc:
-                    block += f"\n  ℹ️ {desc[:200]}"
-            elif store.lower() == "ezviz":
-                # Ezviz: -20% VA -15% ikkalasi alohida
-                d1 = r['discount']  # 20
-                d2 = EZVIZ_SECONDARY_DISCOUNT  # 15
-                p1 = round(price * (1 - d1/100), 2)
-                p2 = round(price * (1 - d2/100), 2)
-                block = (
-                    f"\n📦 <b>Ezviz</b> (Hilok)\n"
-                    f"  Diler narxi: <b>{price:.2f} $</b>\n"
-                    f"  Variant 1 (-{d1:.0f}%): <b>{p1:.2f} $</b>\n"
-                    f"  Variant 2 (-{d2:.0f}%): <b>{p2:.2f} $</b>"
-                )
-                if desc:
-                    block += f"\n  ℹ️ {desc[:120]}"
-            else:
-                block = (
-                    f"\n📦 <b>{store}</b>\n"
-                    f"  Asl narx: <b>{price:.2f} $</b>\n"
-                    f"  Skidka: <b>-{r['discount']:.0f}%</b>\n"
-                    f"  Siz uchun: <b>{r['final']:.2f} $</b>"
-                )
-                if desc:
-                    block += f"\n  ℹ️ {desc[:120]}"
-            blocks.append(block)
-
-        if ai_desc:
-            blocks.append(f"\n🤖 <i>{ai_desc}</i>")
-
-        text = "".join(blocks)
+    for query, fam in found.items():
+        lines = [f"🔍 <b>{query}</b>"]
+        for g in fam["groups"]:
+            tag = "ASOSIY" if g["is_base"] else "qo'shimchali"
+            asked = "  ← siz so'ragan" if g["is_asked"] else ""
+            lines.append(f"\n<b>{g['model']}</b> <i>({tag})</i>{asked}")
+            for r in g["rows"]:
+                if r["store"].lower() == "ezviz":
+                    p2 = round(r["price"] * (1 - EZVIZ_SECONDARY_DISCOUNT / 100), 2)
+                    lines.append(f"  {r['store']}: {r['final']:.2f} $ / {p2:.2f} $")
+                elif r["store"].lower() == "mus":
+                    lines.append(f"  {r['store']}: {r['price']:.2f} $")
+                else:
+                    lines.append(f"  {r['store']}: {r['price']:.2f} → <b>{r['final']:.2f} $</b> (-{r['discount']:.0f}%)")
+        text = "\n".join(lines)
         if len(text) > 3800:
             text = text[:3800] + "\n..."
         await m.answer(text)

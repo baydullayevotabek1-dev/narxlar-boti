@@ -189,77 +189,52 @@ async def api_search(request: web.Request):
 
     # Log each query with cheapest store
     for q in queries:
-        results = found.get(q, [])
-        cheapest = ""
-        if results:
-            min_r = min(results, key=lambda r: r["final"])
-            cheapest = min_r["store"]
-        await asyncio.to_thread(log_search, q, len(results), cheapest)
+        fam = found.get(q)
+        rows = [r for g in fam["groups"] for r in g["rows"]] if fam else []
+        cheapest = min(rows, key=lambda r: r["final"])["store"] if rows else ""
+        await asyncio.to_thread(log_search, q, len(rows), cheapest)
 
     # Format results with Ezviz two-discount handling + AI descriptions
-    formatted = {}
+    ai_tasks = [
+        (q, asyncio.create_task(describe_model(fam["base"], "")))
+        for q, fam in found.items()
+    ]
     ai_descriptions = {}
-    ai_tasks = []
-    for q, results in found.items():
-        # kick off AI description in parallel (uses cache if available)
-        existing_desc = results[0].get("description", "") if results else ""
-        ai_tasks.append((q, asyncio.create_task(describe_model(q, existing_desc))))
-
     for q, task in ai_tasks:
         try:
             ai_descriptions[q] = await task
         except Exception:
             ai_descriptions[q] = ""
 
-    for q, results in found.items():
-        out = []
-        # Compute cheapest final price for badge
-        # Only compare like with like: a different-spec row ("/VPRO") must not
-        # win the cheapest badge against the model the user actually asked for.
-        same_product = [r for r in results if r.get("match_kind") != "other"]
-        min_final = min((r["final"] for r in (same_product or results)), default=None)
-        best_pool = {id(r) for r in (same_product or results)}
-        for r in results:
-            store = r["store"]
-            price = r["price"]
-            is_best = (
-                min_final is not None
-                and id(r) in best_pool
-                and abs(r["final"] - min_final) < 0.01
-            )
-            common = {
-                "store": store,
-                "price": price,
-                "description": r.get("description", ""),
-                "is_best": is_best,
-                "matched_model": r.get("model", ""),
-                "match_kind": r.get("match_kind", "exact"),
-                "is_override": r.get("is_override", False),
-                "file_price": r.get("file_price"),
-            }
-            if store.lower() == "ezviz":
-                out.append({
-                    **common,
-                    "discount_label": "-20% / -15%",
-                    "final": round(price * 0.80, 2),
-                    "final2": round(price * (1 - EZVIZ_SECONDARY_DISCOUNT / 100), 2),
-                    "special": "ezviz",
-                })
-            elif store.lower() == "mus":
-                out.append({
-                    **common,
-                    "discount_label": "—",
-                    "final": price,
-                    "special": "mus",
-                })
-            else:
-                out.append({
-                    **common,
-                    "discount_label": f"-{r['discount']:.0f}%",
-                    "final": r["final"],
-                    "special": None,
-                })
-        formatted[q] = out
+    formatted = {}
+    for q, fam in found.items():
+        groups = []
+        for g in fam["groups"]:
+            # Cheapest is decided within one exact model — never across variants,
+            # since a different variant is a different product.
+            min_final = min((r["final"] for r in g["rows"]), default=None) if len(g["rows"]) > 1 else None
+            rows = []
+            for r in g["rows"]:
+                store, price = r["store"], r["price"]
+                common = {
+                    "store": store,
+                    "price": price,
+                    "description": r.get("description", ""),
+                    "is_best": min_final is not None and abs(r["final"] - min_final) < 0.01,
+                    "is_override": r.get("is_override", False),
+                    "file_price": r.get("file_price"),
+                }
+                if store.lower() == "ezviz":
+                    rows.append({**common, "discount_label": "-20% / -15%", "special": "ezviz",
+                                 "final": round(price * 0.80, 2),
+                                 "final2": round(price * (1 - EZVIZ_SECONDARY_DISCOUNT / 100), 2)})
+                elif store.lower() == "mus":
+                    rows.append({**common, "discount_label": "—", "special": "mus", "final": price})
+                else:
+                    rows.append({**common, "discount_label": f"-{r['discount']:.0f}%",
+                                 "special": None, "final": r["final"]})
+            groups.append({**g, "rows": rows})
+        formatted[q] = {**fam, "groups": groups}
 
     return web.json_response({
         "found": formatted,

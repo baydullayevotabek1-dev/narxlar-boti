@@ -8,18 +8,10 @@ from openpyxl.utils import get_column_letter
 
 from .config import EZVIZ_SECONDARY_DISCOUNT
 
-KIND_LABEL = {
-    "exact": "aniq",
-    "variant": "variant",
-    "broader": "umumiy yozuv",
-    "other": "boshqa versiya",
-}
-
 HEAD_FILL = PatternFill("solid", fgColor="667EEA")
 HEAD_FONT = Font(color="FFFFFF", bold=True, size=11)
 TITLE_FONT = Font(bold=True, size=14, color="333333")
 SUB_FONT = Font(size=10, color="888888")
-WARN_FILL = PatternFill("solid", fgColor="FFF3CD")
 BEST_FILL = PatternFill("solid", fgColor="D5F5E3")
 BEST_FONT = Font(bold=True, color="1E7E34")
 THIN = Side(style="thin", color="DDDDDD")
@@ -32,8 +24,6 @@ def _rows_for(store: str, r: dict) -> list[dict]:
     base = {
         "store": store,
         "price": r["price"],
-        "matched": r.get("model", ""),
-        "kind": r.get("match_kind", "exact"),
         "manual": bool(r.get("is_override")),
     }
     if store.lower() == "ezviz":
@@ -63,44 +53,46 @@ def _sheet_detail(ws, queries, found, store_dates, stamp):
     ws.cell(row=1, column=1, value="Narxlar solishtiruvi — batafsil").font = TITLE_FONT
     ws.cell(row=2, column=1, value=f"Eksport: {stamp}").font = SUB_FONT
 
-    headers = ["Qidirilgan model", "Topilgan model", "Turi", "Do'kon",
+    headers = ["Qidirilgan", "Model", "Turi", "Do'kon",
                "Asl narx ($)", "Skidka (%)", "Yakuniy narx ($)", "Narx manbasi",
                "Narx yangilangan"]
     _write_header(ws, headers, 4)
-    _autosize(ws, [24, 26, 15, 16, 13, 11, 15, 16, 18])
+    _autosize(ws, [24, 28, 14, 16, 13, 11, 15, 16, 18])
 
     r = 5
     for q in queries:
-        results = found.get(q)
-        if not results:
+        fam = found.get(q)
+        if not fam:
             continue
-        same = [x for x in results if x.get("match_kind") != "other"]
-        best = min((x["final"] for x in (same or results)), default=None)
-        for res in sorted(results, key=lambda x: x["final"]):
-            for row in _rows_for(res["store"], res):
-                is_other = row["kind"] == "other"
-                is_best = (not is_other) and best is not None and abs(row["final"] - best) < 0.01
-                values = [
-                    q, row["matched"], KIND_LABEL.get(row["kind"], row["kind"]), row["store"],
-                    row["price"], row["discount"] / 100, row["final"],
-                    "qo'lda tuzatilgan" if row["manual"] else "fayldan",
-                    store_dates.get(row["store"], ""),
-                ]
-                for col, v in enumerate(values, start=1):
-                    c = ws.cell(row=r, column=col, value=v)
-                    c.border = BORDER
-                    if col in (5, 7):
-                        c.number_format = MONEY
-                    if col == 6:
-                        c.number_format = "-0%"
-                    if is_other:
-                        c.fill = WARN_FILL
-                    elif is_best:
-                        c.fill = BEST_FILL
-                if is_best:
-                    ws.cell(row=r, column=7).font = BEST_FONT
-                r += 1
-        r += 1  # blank line between models
+        for g in fam["groups"]:
+            kind = "asosiy" if g["is_base"] else "qo'shimchali"
+            if g["is_asked"] and not g["is_base"]:
+                kind = "so'ralgan"
+            best = min((x["final"] for x in g["rows"]), default=None)
+            for res in g["rows"]:
+                for row in _rows_for(res["store"], res):
+                    is_best = len(g["rows"]) > 1 and best is not None and abs(row["final"] - best) < 0.01
+                    values = [
+                        q, g["model"], kind, row["store"],
+                        row["price"], row["discount"] / 100, row["final"],
+                        "qo'lda tuzatilgan" if row["manual"] else "fayldan",
+                        store_dates.get(row["store"], ""),
+                    ]
+                    for col, v in enumerate(values, start=1):
+                        c = ws.cell(row=r, column=col, value=v)
+                        c.border = BORDER
+                        if col in (5, 7):
+                            c.number_format = MONEY
+                        if col == 6:
+                            c.number_format = "-0%"
+                        if is_best:
+                            c.fill = BEST_FILL
+                    if g["is_base"]:
+                        ws.cell(row=r, column=2).font = Font(bold=True)
+                    if is_best:
+                        ws.cell(row=r, column=7).font = BEST_FONT
+                    r += 1
+        r += 1  # blank line between searches
 
     ws.freeze_panes = "A5"
 
@@ -109,25 +101,31 @@ def _sheet_compare(ws, queries, found, stamp):
     ws.cell(row=1, column=1, value="Narxlar solishtiruvi — jadval").font = TITLE_FONT
     ws.cell(row=2, column=1, value=f"Eksport: {stamp}").font = SUB_FONT
 
-    stores = []
-    for results in found.values():
-        for r in results:
-            if r["store"] not in stores:
-                stores.append(r["store"])
-    stores.sort()
+    # One row per distinct model across all searches, in search order.
+    models: list[dict] = []
+    seen = set()
+    for q in queries:
+        fam = found.get(q)
+        if not fam:
+            continue
+        for g in fam["groups"]:
+            if g["model"] not in seen:
+                seen.add(g["model"])
+                models.append(g)
 
+    stores = sorted({r["store"] for g in models for r in g["rows"]})
     headers = ["Model"] + stores + ["Eng arzon", "Eng arzon narx ($)"]
     _write_header(ws, headers, 4)
-    _autosize(ws, [26] + [14] * len(stores) + [18, 18])
+    _autosize(ws, [30] + [14] * len(stores) + [18, 18])
 
     r = 5
-    for q in queries:
-        results = found.get(q)
-        if not results:
-            continue
-        ws.cell(row=r, column=1, value=q).border = BORDER
+    for g in models:
+        mc = ws.cell(row=r, column=1, value=g["model"])
+        mc.border = BORDER
+        if g["is_base"]:
+            mc.font = Font(bold=True)
 
-        by_store = {x["store"]: x for x in results}
+        by_store = {x["store"]: x for x in g["rows"]}
         for col, store in enumerate(stores, start=2):
             c = ws.cell(row=r, column=col)
             c.border = BORDER
@@ -138,12 +136,8 @@ def _sheet_compare(ws, queries, found, stamp):
                 continue
             c.value = hit["final"]
             c.number_format = MONEY
-            if hit.get("match_kind") == "other":
-                c.fill = WARN_FILL
 
-        same = [x for x in results if x.get("match_kind") != "other"]
-        pool = same or results
-        winner = min(pool, key=lambda x: x["final"])
+        winner = min(g["rows"], key=lambda x: x["final"])
         wc = ws.cell(row=r, column=len(stores) + 2, value=winner["store"])
         wp = ws.cell(row=r, column=len(stores) + 3, value=winner["final"])
         wp.number_format = MONEY
@@ -156,7 +150,7 @@ def _sheet_compare(ws, queries, found, stamp):
     ws.freeze_panes = "B5"
 
     note = ws.cell(row=r + 1, column=1,
-                   value="Sariq katak — boshqa versiya (/VPRO, /8P): spetsifikatsiyasi farq qiladi.")
+                   value="Qalin — asosiy model. Qolganlari shu modelning qo'shimchali variantlari.")
     note.font = SUB_FONT
 
 
