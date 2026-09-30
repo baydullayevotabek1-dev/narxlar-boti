@@ -13,6 +13,7 @@ from .config import SITE_PASSWORD, ADMIN_PASSWORD, SESSION_SECRET, EZVIZ_SECONDA
 from .database import (
     list_stores, set_discount, replace_products, stats, add_store, delete_store,
     log_search, suggest_models, stats_top_models, stats_cheapest_stores, stats_totals,
+    set_price_override, clear_price_override, list_price_overrides,
 )
 from .parser import parse_excel
 from .search import search_models
@@ -240,6 +241,8 @@ async def api_search(request: web.Request):
                 "is_best": is_best,
                 "matched_model": r.get("model", ""),
                 "match_kind": r.get("match_kind", "exact"),
+                "is_override": r.get("is_override", False),
+                "file_price": r.get("file_price"),
             }
             if store.lower() == "ezviz":
                 out.append({
@@ -307,10 +310,11 @@ async def api_upload(request: web.Request):
     if not items:
         return web.json_response({"error": "Mahsulot topilmadi. Ustunlarda Model va Narx bo'lishi kerak."}, status=400)
 
-    replace_products(store, items)
+    cleared = replace_products(store, items)
     return web.json_response({
         "ok": True, "store": store, "filename": filename,
-        "count": len(items), "size_mb": round(len(file_bytes) / 1024 / 1024, 2)
+        "count": len(items), "size_mb": round(len(file_bytes) / 1024 / 1024, 2),
+        "cleared_overrides": cleared,
     })
 
 
@@ -335,10 +339,11 @@ async def api_upload_url(request: web.Request):
     if not items:
         return web.json_response({"error": "Mahsulot topilmadi"}, status=400)
 
-    replace_products(store, items)
+    cleared = replace_products(store, items)
     return web.json_response({
         "ok": True, "store": store, "filename": filename,
-        "count": len(items), "size_mb": round(len(raw) / 1024 / 1024, 2)
+        "count": len(items), "size_mb": round(len(raw) / 1024 / 1024, 2),
+        "cleared_overrides": cleared,
     })
 
 
@@ -352,6 +357,46 @@ async def api_set_discount(request: web.Request):
         return web.json_response({"error": "discount raqam bo'lishi kerak"}, status=400)
     set_discount(store, discount)
     return web.json_response({"ok": True})
+
+
+async def api_set_price(request: web.Request):
+    _require_admin(request)
+    data = await request.json()
+    store = (data.get("store") or "").strip()
+    model = (data.get("model") or "").strip()
+    try:
+        price = float(data.get("price"))
+    except (TypeError, ValueError):
+        return web.json_response({"error": "Narx raqam bo'lishi kerak"}, status=400)
+    if not store or not model:
+        return web.json_response({"error": "store va model kerak"}, status=400)
+    if price <= 0:
+        return web.json_response({"error": "Narx noldan katta bo'lishi kerak"}, status=400)
+
+    ok = set_price_override(store, model, price, "admin")
+    if not ok:
+        return web.json_response({"error": f"{store} da {model} topilmadi"}, status=400)
+    return web.json_response({"ok": True})
+
+
+async def api_clear_price(request: web.Request):
+    _require_admin(request)
+    data = await request.json()
+    store = (data.get("store") or "").strip()
+    model = (data.get("model") or "").strip()
+    if not store or not model:
+        return web.json_response({"error": "store va model kerak"}, status=400)
+    clear_price_override(store, model)
+    return web.json_response({"ok": True})
+
+
+async def api_list_price_overrides(request: web.Request):
+    _require_admin(request)
+    import datetime
+    rows = list_price_overrides()
+    for r in rows:
+        r["created_str"] = datetime.datetime.fromtimestamp(r["created_at"]).strftime("%d.%m.%Y %H:%M")
+    return web.json_response(rows)
 
 
 async def api_export(request: web.Request):
@@ -433,6 +478,9 @@ def register_routes(app: web.Application):
     app.router.add_post("/api/set_discount", api_set_discount)
     app.router.add_post("/api/add_store", api_add_store)
     app.router.add_post("/api/delete_store", api_delete_store)
+    app.router.add_post("/api/set_price", api_set_price)
+    app.router.add_post("/api/clear_price", api_clear_price)
+    app.router.add_get("/api/price_overrides", api_list_price_overrides)
     app.router.add_post("/api/export", api_export)
     app.router.add_get("/api/suggest", api_suggest)
     app.router.add_get("/api/stats", api_stats)

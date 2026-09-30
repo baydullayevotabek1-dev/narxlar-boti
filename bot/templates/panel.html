@@ -66,6 +66,13 @@
   .chip-suggest:hover { background: #fff3cd; }
   .kind-variant { display: inline-block; background: #eef1fb; color: #5568d3; padding: 1px 6px; border-radius: 8px; font-size: 10px; }
   .kind-other { display: inline-block; background: #fff3cd; color: #856404; border: 1px solid #ffe08a; padding: 1px 6px; border-radius: 8px; font-size: 10px; white-space: nowrap; }
+  .edit-price { cursor: pointer; opacity: 0.35; font-size: 12px; user-select: none; }
+  .edit-price:hover { opacity: 1; }
+  .override-tag { font-size: 10px; font-weight: 600; color: #b8860b; margin-top: 2px; white-space: nowrap; }
+  .override-tag .undo { text-decoration: underline; cursor: pointer; color: #888; font-weight: 400; }
+  .override-tag .undo:hover { color: #e74c3c; }
+  .cleared-box { margin-top: 10px; padding: 10px; background: #fff8e6; border: 1px solid #ffe08a; border-radius: 6px; font-size: 12px; color: #7a5b00; text-align: left; }
+  .cleared-box ul { margin: 6px 0 0 16px; }
   tr:has(.kind-other) .price { color: #e67e22; }
   tr.best-row { background: linear-gradient(90deg, #d5f5e3 0%, #fff 60%); }
   .copy-btn { background: #f0f0f0; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #555; margin-top: 8px; }
@@ -298,6 +305,21 @@ function setStatus(id, msg, ok) {
   el.className = 'status ' + (ok === true ? 'ok' : ok === false ? 'err' : '');
 }
 
+function uploadDone(j) {
+  setStatus('uploadStatus', `✅ ${j.store} — ${j.count} mahsulot yuklandi (${j.size_mb} MB)`, true);
+  loadStores();
+  const cleared = j.cleared_overrides || [];
+  if (!cleared.length) { setTimeout(closeModal, 2000); return; }
+  // Keep the modal open: the admin has to look at these.
+  const el = document.getElementById('uploadStatus');
+  el.innerHTML += `<div class="cleared-box">
+    ℹ️ <b>${cleared.length} ta qo'lda tuzatilgan narx tozalandi</b> — tekshiring, kerak bo'lsa qayta kiriting:
+    <ul>` + cleared.map(c => {
+      const fp = c.file_price == null ? 'fayldan topilmadi' : c.file_price.toFixed(2) + ' $';
+      return `<li><b>${escapeHtml(c.model)}</b> — qo'lda ${c.manual_price.toFixed(2)} $ → ${fp}</li>`;
+    }).join('') + `</ul></div>`;
+}
+
 async function uploadFile() {
   const f = document.getElementById('fileInput').files[0];
   if (!f) { setStatus('uploadStatus', 'Fayl tanlang', false); return; }
@@ -309,9 +331,7 @@ async function uploadFile() {
     const res = await fetch('/api/upload', { method: 'POST', body: fd });
     const j = await res.json();
     if (j.ok) {
-      setStatus('uploadStatus', `✅ ${j.store} — ${j.count} mahsulot yuklandi (${j.size_mb} MB)`, true);
-      loadStores();
-      setTimeout(closeModal, 2000);
+      uploadDone(j);
     } else {
       setStatus('uploadStatus', '❌ ' + (j.error || 'Xato'), false);
     }
@@ -331,9 +351,7 @@ async function uploadUrl() {
     });
     const j = await res.json();
     if (j.ok) {
-      setStatus('uploadStatus', `✅ ${j.store} — ${j.count} mahsulot yuklandi (${j.size_mb} MB)`, true);
-      loadStores();
-      setTimeout(closeModal, 2000);
+      uploadDone(j);
     } else {
       setStatus('uploadStatus', '❌ ' + (j.error || 'Xato'), false);
     }
@@ -386,12 +404,19 @@ function renderResults(j) {
             ? '<span class="kind-other" title="Boshqa spetsifikatsiya — narxi farq qiladi">⚠️ boshqa versiya</span>'
             : '');
       const modelCell = `<td class="matched-model">${escapeHtml(r.matched_model || '')} ${kindTag}</td>`;
+      const editBtn = IS_ADMIN
+        ? `<span class="edit-price" title="Narxni qo'lda tuzatish"
+             onclick="editPrice('${encodeURIComponent(r.store)}','${encodeURIComponent(r.matched_model)}',${r.price})">✏️</span>`
+        : '';
+      const ovTag = r.is_override
+        ? `<div class="override-tag" title="Fayldagi narx: ${r.file_price != null ? r.file_price.toFixed(2) + ' $' : '—'}">✏️ qo'lda${IS_ADMIN ? ` <span class="undo" onclick="clearPrice('${encodeURIComponent(r.store)}','${encodeURIComponent(r.matched_model)}')">bekor</span>` : ''}</div>`
+        : '';
       const priceCell = r.special === 'ezviz'
-        ? `<td class="price">${r.final.toFixed(2)} $ / ${r.final2.toFixed(2)} $</td>`
-        : `<td class="price">${r.final.toFixed(2)} $</td>`;
+        ? `<td class="price">${r.final.toFixed(2)} $ / ${r.final2.toFixed(2)} $${ovTag}</td>`
+        : `<td class="price">${r.final.toFixed(2)} $${ovTag}</td>`;
       const origCell = r.special === 'mus'
-        ? `<td>${r.price.toFixed(2)} $</td>`
-        : `<td class="old-price">${r.price.toFixed(2)} $</td>`;
+        ? `<td>${r.price.toFixed(2)} $ ${editBtn}</td>`
+        : `<td class="old-price">${r.price.toFixed(2)} $ ${editBtn}</td>`;
       const discCell = r.special === 'mus'
         ? '<td>—</td>'
         : `<td class="discount">${r.discount_label}</td>`;
@@ -429,6 +454,37 @@ function renderResults(j) {
   window._lastResults = j;
   const hasPrices = Object.keys(j.found || {}).length > 0;
   document.getElementById('excelBtn').style.display = hasPrices ? '' : 'none';
+}
+
+async function editPrice(storeEnc, modelEnc, current) {
+  const store = decodeURIComponent(storeEnc), model = decodeURIComponent(modelEnc);
+  const val = prompt(`${store} — ${model}\nYangi asl narx ($), hozir ${current}:`, current);
+  if (val === null) return;
+  const price = parseFloat(String(val).replace(',', '.'));
+  if (isNaN(price) || price <= 0) { alert('Narx noldan katta raqam bo\'lishi kerak'); return; }
+  try {
+    const res = await fetch('/api/set_price', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({store, model, price})
+    });
+    const j = await res.json();
+    if (j.ok) doSearch();
+    else alert('Xato: ' + (j.error || 'noma\'lum'));
+  } catch (e) { alert('Xato: ' + e.message); }
+}
+
+async function clearPrice(storeEnc, modelEnc) {
+  const store = decodeURIComponent(storeEnc), model = decodeURIComponent(modelEnc);
+  if (!confirm(`${store} — ${model}\nQo'lda kiritilgan narx bekor qilinsinmi? Fayldagi narx qaytadi.`)) return;
+  try {
+    const res = await fetch('/api/clear_price', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({store, model})
+    });
+    const j = await res.json();
+    if (j.ok) doSearch();
+    else alert('Xato: ' + (j.error || 'noma\'lum'));
+  } catch (e) { alert('Xato: ' + e.message); }
 }
 
 async function downloadExcel() {

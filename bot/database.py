@@ -38,6 +38,19 @@ def init_db():
                 created_at INTEGER NOT NULL
             )
         """)
+        # A manual price patch applied on top of whatever the store's Excel says.
+        # Cleared when that store is re-uploaded — the fresh file is authoritative.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS price_overrides (
+                store TEXT NOT NULL,
+                model_norm TEXT NOT NULL,
+                model TEXT NOT NULL,
+                price REAL NOT NULL,
+                author TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (store, model_norm)
+            )
+        """)
         c.execute("""
             CREATE TABLE IF NOT EXISTS search_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,6 +141,60 @@ def replace_products(store: str, items: list[dict]):
         )
         c.execute("UPDATE stores SET updated_at=? WHERE lower(name)=lower(?)", (now, store))
 
+        # The fresh file supersedes manual patches. Report what was dropped so the
+        # admin can re-check anything the file did not actually catch up on.
+        overrides = c.execute(
+            "SELECT model, model_norm, price FROM price_overrides WHERE lower(store)=lower(?)",
+            (store,),
+        ).fetchall()
+        cleared = []
+        if overrides:
+            new_prices = {normalize(it["model"]): float(it["price"]) for it in items}
+            for o in overrides:
+                cleared.append({
+                    "model": o["model"],
+                    "manual_price": o["price"],
+                    "file_price": new_prices.get(o["model_norm"]),
+                })
+            c.execute("DELETE FROM price_overrides WHERE lower(store)=lower(?)", (store,))
+        return cleared
+
+
+def set_price_override(store: str, model: str, price: float, author: str) -> bool:
+    """Patch one product's price. Returns False if that model isn't in the store."""
+    import time
+    norm = normalize(model)
+    with get_conn() as c:
+        row = c.execute(
+            "SELECT model FROM products WHERE lower(store)=lower(?) AND model_norm=? LIMIT 1",
+            (store, norm),
+        ).fetchone()
+        if not row:
+            return False
+        c.execute(
+            "INSERT OR REPLACE INTO price_overrides"
+            "(store, model_norm, model, price, author, created_at) VALUES(?,?,?,?,?,?)",
+            (store, norm, row["model"], float(price), author, int(time.time())),
+        )
+        return True
+
+
+def clear_price_override(store: str, model: str):
+    with get_conn() as c:
+        c.execute(
+            "DELETE FROM price_overrides WHERE lower(store)=lower(?) AND model_norm=?",
+            (store, normalize(model)),
+        )
+
+
+def list_price_overrides() -> list[dict]:
+    with get_conn() as c:
+        rows = c.execute(
+            "SELECT store, model, price, author, created_at FROM price_overrides "
+            "ORDER BY created_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
 
 def add_store(name: str, discount: float) -> bool:
     """Add a new store. Returns False if already exists."""
@@ -146,11 +213,30 @@ def delete_store(name: str):
 
 
 def all_products():
+    """Products with their store discount, with any manual price patch applied."""
     with get_conn() as c:
         rows = c.execute(
-            "SELECT p.*, s.discount FROM products p JOIN stores s ON lower(s.name)=lower(p.store)"
+            "SELECT p.*, s.discount, "
+            "o.price AS override_price, o.author AS override_author, "
+            "o.created_at AS override_at "
+            "FROM products p "
+            "JOIN stores s ON lower(s.name)=lower(p.store) "
+            "LEFT JOIN price_overrides o "
+            "  ON lower(o.store)=lower(p.store) AND o.model_norm=p.model_norm"
         ).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            if d.pop("override_price", None) is not None:
+                d["file_price"] = d["price"]
+                d["price"] = r["override_price"]
+                d["is_override"] = True
+            else:
+                d.pop("override_author", None)
+                d.pop("override_at", None)
+                d["is_override"] = False
+            out.append(d)
+        return out
 
 
 def stats():

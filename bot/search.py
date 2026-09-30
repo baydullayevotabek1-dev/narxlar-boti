@@ -115,6 +115,10 @@ def search_models(queries: list[str]) -> tuple[dict, dict, list[str]]:
                     "final": final,
                     "description": p.get("description", "") or "",
                     "match_kind": p["match_kind"],
+                    "is_override": bool(p.get("is_override")),
+                    "file_price": p.get("file_price"),
+                    "override_author": p.get("override_author") or "",
+                    "override_at": p.get("override_at"),
                 })
             found[q_clean] = result_list
             shown = {p["model"] for p in matches}

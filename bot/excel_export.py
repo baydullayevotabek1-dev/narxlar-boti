@@ -29,6 +29,7 @@ def _rows_for(store: str, r: dict) -> list[dict]:
         "price": r["price"],
         "matched": r.get("model", ""),
         "kind": r.get("match_kind", "exact"),
+        "manual": bool(r.get("is_override")),
     }
     if store.lower() == "ezviz":
         return [
@@ -58,9 +59,10 @@ def _sheet_detail(ws, queries, found, store_dates, stamp):
     ws.cell(row=2, column=1, value=f"Eksport: {stamp}").font = SUB_FONT
 
     headers = ["Qidirilgan model", "Topilgan model", "Turi", "Do'kon",
-               "Asl narx ($)", "Skidka (%)", "Yakuniy narx ($)", "Narx yangilangan"]
+               "Asl narx ($)", "Skidka (%)", "Yakuniy narx ($)", "Narx manbasi",
+               "Narx yangilangan"]
     _write_header(ws, headers, 4)
-    _autosize(ws, [24, 26, 15, 16, 13, 11, 15, 18])
+    _autosize(ws, [24, 26, 15, 16, 13, 11, 15, 16, 18])
 
     r = 5
     for q in queries:
@@ -76,6 +78,7 @@ def _sheet_detail(ws, queries, found, store_dates, stamp):
                 values = [
                     q, row["matched"], KIND_LABEL.get(row["kind"], row["kind"]), row["store"],
                     row["price"], row["discount"] / 100, row["final"],
+                    "qo'lda tuzatilgan" if row["manual"] else "fayldan",
                     store_dates.get(row["store"], ""),
                 ]
                 for col, v in enumerate(values, start=1):
