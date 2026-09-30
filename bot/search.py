@@ -9,6 +9,20 @@ from .config import FUZZY_THRESHOLD
 # Anything else ("/VPRO", "/8P", "-P") is a different SKU at a different price.
 _PACKAGING_SUFFIX = re.compile(r"^(\s*\([^)]*\))+\s*$")
 
+# Split model lists on newlines and semicolons, and on commas — except a comma
+# sitting between two digits, which is a decimal point in a lens size ("2,8MM").
+_SPLIT = re.compile(r"[\n;]+|(?<!\d),|,(?!\d)")
+
+
+def split_query(text: str) -> list[str]:
+    out, seen = [], set()
+    for part in _SPLIT.split(text):
+        part = (part or "").strip()
+        if part and part.lower() not in seen:
+            seen.add(part.lower())
+            out.append(part)
+    return out
+
 
 def _raw_suffix(model: str, qn: str) -> str | None:
     """
@@ -86,16 +100,30 @@ def search_models(queries: list[str]) -> tuple[dict, dict, list[str]]:
         if qn in norm_map:
             take(qn, "exact")
 
-        # 2) same code plus a suffix. Two kinds, both priced but labelled apart:
-        #    "(D)", "(STD)(C)"  -> packaging only, same product
-        #    "/VPRO", "/8P", "-P" -> a different spec at a different price, so the
-        #    row must say so rather than read as the plain model's price.
-        #    Packaging first, shortest suffix first, so the closest match wins the store.
-        prefixed = sorted((k for k in norm_keys if k != qn and k.startswith(qn)), key=len)
-        packaging = [k for k in prefixed if any(_is_packaging_variant(p["model"], qn) for p in norm_map[k])]
-        other = [k for k in prefixed if k not in packaging]
+        # 2) One side spells the model out more than the other. Both are priced,
+        #    but the row says which, because the extra part may cost money.
+        #
+        #    a) store is MORE specific: "DS-7608NI-Q1" -> "DS-7608NI-Q1(STD)(C)"
+        #       packaging parens  -> same product        -> "variant"
+        #       "/VPRO", "-P"     -> a different spec     -> "other"
+        #    b) store is LESS specific: user typed "DS-2CD1043G2-I 2,8MM" but the
+        #       store lists plain "DS-2CD1043G2-I". Same base product, lens
+        #       unstated -> "broader", so the manager checks the lens.
+        longer = sorted((k for k in norm_keys if k != qn and k.startswith(qn)), key=len)
+        shorter = sorted((k for k in norm_keys if k != qn and qn.startswith(k)), key=len, reverse=True)
+
+        packaging = [k for k in longer if any(_is_packaging_variant(p["model"], qn) for p in norm_map[k])]
+        other = [k for k in longer if k not in packaging]
+        # A parenthesised tail on the *query* is packaging too, just typed by the user.
+        broader_pack = [k for k in shorter if _is_packaging_variant(q_clean, k)]
+        broader = [k for k in shorter if k not in broader_pack]
+
         for key in packaging:
             take(key, "variant")
+        for key in broader_pack:
+            take(key, "variant")
+        for key in broader:
+            take(key, "broader")
         for key in other:
             take(key, "other")
 

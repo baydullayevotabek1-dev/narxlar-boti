@@ -1,4 +1,3 @@
-import re
 import asyncio
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
@@ -33,20 +32,8 @@ HELP = (
 
 
 def split_models(text: str) -> list[str]:
-    # split by newlines, commas, semicolons
-    parts = re.split(r"[\n,;]+", text)
-    out = []
-    seen = set()
-    for p in parts:
-        p = p.strip()
-        if not p:
-            continue
-        key = p.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(p)
-    return out
+    from ..search import split_query
+    return split_query(text)
 
 
 @router.message(CommandStart())

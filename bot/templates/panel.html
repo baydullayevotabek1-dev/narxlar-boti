@@ -66,6 +66,7 @@
   .chip-suggest:hover { background: #fff3cd; }
   .kind-variant { display: inline-block; background: #eef1fb; color: #5568d3; padding: 1px 6px; border-radius: 8px; font-size: 10px; }
   .kind-other { display: inline-block; background: #fff3cd; color: #856404; border: 1px solid #ffe08a; padding: 1px 6px; border-radius: 8px; font-size: 10px; white-space: nowrap; }
+  .kind-broader { display: inline-block; background: #e8f4fd; color: #2c6fa8; border: 1px solid #b6dcf7; padding: 1px 6px; border-radius: 8px; font-size: 10px; white-space: nowrap; }
   .edit-price { cursor: pointer; opacity: 0.35; font-size: 12px; user-select: none; }
   .edit-price:hover { opacity: 1; }
   .override-tag { font-size: 10px; font-weight: 600; color: #b8860b; margin-top: 2px; white-space: nowrap; }
@@ -398,11 +399,12 @@ function renderResults(j) {
     for (const r of list) {
       const badge = r.is_best ? '<span class="best-badge">🏆 ARZON</span>' : '';
       const rowClass = r.is_best ? 'best-row' : '';
-      const kindTag = r.match_kind === 'variant'
-        ? '<span class="kind-variant">variant</span>'
-        : (r.match_kind === 'other'
-            ? '<span class="kind-other" title="Boshqa spetsifikatsiya — narxi farq qiladi">⚠️ boshqa versiya</span>'
-            : '');
+      const KIND_TAGS = {
+        variant: '<span class="kind-variant">variant</span>',
+        other:   '<span class="kind-other" title="Boshqa spetsifikatsiya — narxi farq qiladi">⚠️ boshqa versiya</span>',
+        broader: '<span class="kind-broader" title="Do\'kon bu modelni qisqaroq yozgan — linza/versiyani tekshiring">ℹ️ umumiy yozuv</span>',
+      };
+      const kindTag = KIND_TAGS[r.match_kind] || '';
       const modelCell = `<td class="matched-model">${escapeHtml(r.matched_model || '')} ${kindTag}</td>`;
       const editBtn = IS_ADMIN
         ? `<span class="edit-price" title="Narxni qo'lda tuzatish"

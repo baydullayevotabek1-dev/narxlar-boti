@@ -172,15 +172,8 @@ async def api_delete_store(request: web.Request):
 
 
 def _split_queries(query: str) -> list[str]:
-    import re
-    queries = []
-    seen = set()
-    for p in re.split(r"[\n,;]+", query):
-        p = p.strip()
-        if p and p.lower() not in seen:
-            seen.add(p.lower())
-            queries.append(p)
-    return queries
+    from .search import split_query
+    return split_query(query)
 
 
 async def api_search(request: web.Request):

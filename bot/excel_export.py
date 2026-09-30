@@ -8,7 +8,12 @@ from openpyxl.utils import get_column_letter
 
 from .config import EZVIZ_SECONDARY_DISCOUNT
 
-KIND_LABEL = {"exact": "aniq", "variant": "variant", "other": "boshqa versiya"}
+KIND_LABEL = {
+    "exact": "aniq",
+    "variant": "variant",
+    "broader": "umumiy yozuv",
+    "other": "boshqa versiya",
+}
 
 HEAD_FILL = PatternFill("solid", fgColor="667EEA")
 HEAD_FONT = Font(color="FFFFFF", bold=True, size=11)
