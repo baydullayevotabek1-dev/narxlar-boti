@@ -28,6 +28,8 @@
   .btn-sm { padding: 6px 12px; font-size: 13px; }
   .btn-ghost { background: #f0f0f0; color: #555; }
   .btn-ghost:hover { background: #e0e0e0; }
+  .btn-excel { background: #1d6f42; }
+  .btn-excel:hover { background: #165733; }
   .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
   .store-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #eee; gap: 8px; }
   .store-item:last-child { border-bottom: none; }
@@ -115,6 +117,7 @@
     </div>
     <div class="row">
       <button class="btn" onclick="doSearch()" id="searchBtn">Qidirish</button>
+      <button class="btn btn-excel" onclick="downloadExcel()" id="excelBtn" style="display:none;">⬇️ Excel yuklab olish</button>
       <span id="searchStatus"></span>
     </div>
     <div class="history-chips" id="historyChips"></div>
@@ -344,10 +347,12 @@ async function doSearch() {
   if (!q) return;
   hideSuggest();
   addToHistory(q);
+  window._lastQuery = q;
   const btn = document.getElementById('searchBtn');
   btn.disabled = true;
   document.getElementById('searchStatus').innerHTML = '<span class="loader"></span> Qidirilmoqda...';
   document.getElementById('results').innerHTML = '';
+  document.getElementById('excelBtn').style.display = 'none';
   try {
     const res = await fetch('/api/search', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -422,6 +427,45 @@ function renderResults(j) {
   }
   el.innerHTML = html || '<div class="not-found">Natija yo\'q</div>';
   window._lastResults = j;
+  const hasPrices = Object.keys(j.found || {}).length > 0;
+  document.getElementById('excelBtn').style.display = hasPrices ? '' : 'none';
+}
+
+async function downloadExcel() {
+  const q = window._lastQuery || document.getElementById('query').value.trim();
+  if (!q) return;
+  const btn = document.getElementById('excelBtn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Tayyorlanmoqda...';
+  try {
+    const res = await fetch('/api/export', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q })
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      alert('Xato: ' + (j.error || res.statusText));
+      return;
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = m ? m[1] : 'narxlar.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+    btn.textContent = '✅ Yuklandi';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  } catch (e) {
+    alert('Xato: ' + e.message);
+    btn.textContent = orig;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function copyBlock(bid, model) {

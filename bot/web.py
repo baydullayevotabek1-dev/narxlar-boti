@@ -19,6 +19,7 @@ from .search import search_models
 from .store_detect import detect_store
 from .url_download import download_url
 from .gemini import describe_model
+from .excel_export import build_workbook
 
 log = logging.getLogger(__name__)
 
@@ -169,21 +170,25 @@ async def api_delete_store(request: web.Request):
     return web.json_response({"ok": True})
 
 
+def _split_queries(query: str) -> list[str]:
+    import re
+    queries = []
+    seen = set()
+    for p in re.split(r"[\n,;]+", query):
+        p = p.strip()
+        if p and p.lower() not in seen:
+            seen.add(p.lower())
+            queries.append(p)
+    return queries
+
+
 async def api_search(request: web.Request):
     _require_auth(request)
     data = await request.json()
     query = (data.get("query") or "").strip()
     if not query:
         return web.json_response({"found": {}, "suggestions": {}, "not_found": []})
-    import re
-    parts = re.split(r"[\n,;]+", query)
-    queries = []
-    seen = set()
-    for p in parts:
-        p = p.strip()
-        if p and p.lower() not in seen:
-            seen.add(p.lower())
-            queries.append(p)
+    queries = _split_queries(query)
     if len(queries) > 60:
         return web.json_response({"error": "Max 60 ta model"})
     found, suggestions, not_found = await asyncio.to_thread(search_models, queries)
@@ -349,6 +354,40 @@ async def api_set_discount(request: web.Request):
     return web.json_response({"ok": True})
 
 
+async def api_export(request: web.Request):
+    """Re-run the search server-side so the workbook can't carry stale client prices."""
+    _require_auth(request)
+    data = await request.json()
+    queries = _split_queries((data.get("query") or "").strip())
+    if not queries:
+        return web.json_response({"error": "Qidiruv bo'sh"}, status=400)
+    if len(queries) > 60:
+        return web.json_response({"error": "Max 60 ta model"}, status=400)
+
+    found, suggestions, not_found = await asyncio.to_thread(search_models, queries)
+    if not found:
+        return web.json_response({"error": "Eksport uchun natija yo'q"}, status=400)
+
+    import datetime
+    store_dates = {}
+    for s in list_stores():
+        ts = s.get("updated_at") or 0
+        if ts:
+            store_dates[s["name"]] = datetime.datetime.fromtimestamp(ts).strftime("%d.%m.%Y %H:%M")
+
+    body = await asyncio.to_thread(
+        build_workbook, queries, found, suggestions, not_found, store_dates
+    )
+    filename = "narxlar_" + datetime.datetime.now().strftime("%Y-%m-%d_%H%M") + ".xlsx"
+    return web.Response(
+        body=body,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        },
+    )
+
+
 async def api_suggest(request: web.Request):
     _require_auth(request)
     q = request.query.get("q", "").strip()
@@ -394,6 +433,7 @@ def register_routes(app: web.Application):
     app.router.add_post("/api/set_discount", api_set_discount)
     app.router.add_post("/api/add_store", api_add_store)
     app.router.add_post("/api/delete_store", api_delete_store)
+    app.router.add_post("/api/export", api_export)
     app.router.add_get("/api/suggest", api_suggest)
     app.router.add_get("/api/stats", api_stats)
     app.router.add_get("/stats", page_stats)
